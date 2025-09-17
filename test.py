@@ -42,8 +42,8 @@ def get_report_data(md_content):
         title_index,title_score = title_scores['index'],title_scores['score']
         
         if title_score > 0.7:
-            if "<table" in content:
-                content = table_to_text(content).strip()
+            # if "<table" in content:
+            #     content = table_to_text(content).strip()
             filter_contents.append(content)
     # response = gpt_chat(WIND_ANNO_PROMPT.format(contents='\n'.join(filter_contents))).replace('None','')
     response = qwen_chat(WIND_ANNO_PROMPT.format(contents='\n'.join(filter_contents))).replace('None','')
@@ -77,10 +77,7 @@ def process_single_file(file_path):
 def main():
     """主函数，实现多线程并发处理"""
     # 读取报告标签
-    global report_labels
-    report_labels = pd.read_excel("data/report.xlsx", engine='openpyxl').fillna('').values.tolist()
-    report_labels = [item[0]+' '+item[1] for item in report_labels]
-
+    
     root = Path('./wind_anno')  # 把这里换成你要遍历的目录
     all_files = [p for p in root.rglob('*') if p.is_file()]
     
@@ -113,8 +110,26 @@ def main():
     
     logger.info(f"处理完成！成功: {successful_count}, 失败: {failed_count}")
 
+def test():
+    file_path = "wind_anno/年度报告_windanno_90e0072a-0dc7-51f4-8a8b-55ce703a0bcc原文.md"
+    md_content = read_single_md_file(file_path)
+    parsed_data = get_report_data(md_content)
+    
+    # 使用线程锁确保文件写入的线程安全
+    output_file = f"responses/年度报告_windanno_90e0072a-0dc7-51f4-8a8b-55ce703a0bcc原文_qwen_thinking.json"
+   
+    with open(output_file, 'w', encoding='utf-8') as fp:
+        fp.write(json.dumps(parsed_data, ensure_ascii=False, indent=2))
+    fp.close()
+    
+
+global report_labels
+report_labels = pd.read_excel("data/report.xlsx", engine='openpyxl').fillna('').values.tolist()
+report_labels = [item[0]+' '+item[1] for item in report_labels]
+
 if __name__ == "__main__":
-    main()
+    # main()
+    test()
 
 
 

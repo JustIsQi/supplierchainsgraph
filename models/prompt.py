@@ -13,6 +13,8 @@ WIND_ANNO_PROMPT = """
    - business_scope: 经营范围
    - company_qualification: 公司资质
    - is_bond_issuer: 是否债券发行人（true/false）
+   - total_assets: 总资产（保持原文格式和单位）
+   - registered_capital: 注册资本（原文格式+单位，如23,959.28万元）
 
 2. **股票信息**：
    - stock_code: 股票代码
@@ -28,7 +30,7 @@ WIND_ANNO_PROMPT = """
    - cancel_risk_warning_time: 取消风险警示时间
    - risk_warning_status: 风险警示状态（ST、*ST、-B、RST、QB、QX、退市整理等）
 
-3. **董监高人员信息**：
+3. **董事、监事、高管人员信息**：
    - person_name: 人员名称
    - person_name_en: 英文人员名称
    - position: 职位（董事、监事、高管等）
@@ -63,15 +65,15 @@ WIND_ANNO_PROMPT = """
    - registered_capital: 注册资本（原文格式+单位，如23,959.28万元）
    - investment_method: 资本投资方式（股权转让、收购兼并、资产剥离、资产交易、资产置换、持有证券、设立）
 
-6. **关联公司信息**：
-   - company_name: 关联公司名称
-   - related_company_type: 关联公司类型（合营企业、联营企业、关联方等）
-   - relationship: 关联关系描述
+6. **关联方信息**：
+   - related_party_name: 关联公司名称
+   - related_party_type: 关联公司类型（仅可为：合营企业、联营企业、自然人）
+   - relationship: 关联关系描述(保留原文表述：如实际控制人近亲属之亲属控制的公司；持股5%以上股东)
    - relationship_percentage: 关联比例（保持原文格式，如'30%'或'30.0'）
    - business_scope: 经营范围
 
 7. **供应商信息**：
-   - supplier_name: 供应商名称
+   - supplier_name: 供应商名称(只抽取真正供应商，类似第一供应商、第三供应商这种不抽取)
    - supply_percentage: 供应商占比（保持原文格式，如'15.3%'或'15.3'）
    - supply_amount: 供应金额（保持原文格式和单位，如'1,000万元'）
    - currency: 货币单位
@@ -80,7 +82,7 @@ WIND_ANNO_PROMPT = """
    - report_period: 报告数据截止日期
 
 8. **客户信息**：
-   - customer_name: 客户名称
+   - customer_name: 客户名称(只抽取真正客户，类似客户一、客户二这种不抽取)
    - customer_percentage: 客户占比（保持原文格式，如'20.5%'或'20.5'）
    - customer_amount: 客户金额（保持原文格式和单位，如'5,000万元'）
    - currency: 货币单位
@@ -122,7 +124,7 @@ WIND_ANNO_PROMPT = """
 - **分类字段严格要求**：
   - shareholder_type（股东类型）请严格区分遵循原文表述：自然人、投资基金、机构投资者（仅限这三个选项）
   - subsidiary_type（子公司类型）请严格区分遵循原文表述：全资子公司、控股子公司、参股公司等
-  - related_company_type（关联公司类型）请严格区分遵循原文表述：合营企业、联营企业、关联方等
+  - related_party_type（关联方类型）请严格区分遵循原文表述：合营企业、联营企业、自然人（仅限这三个选项）
   - list_status（上市公司状态）请严格区分遵循原文表述：正常上市、终止上市、暂缓上市、退市整理等
   - position（人员职位）请明确标注：董事、监事、高管等具体职位
   - share_type（股本类型）请严格区分遵循原文表述：限售、非限售

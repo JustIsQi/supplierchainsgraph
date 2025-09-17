@@ -16,7 +16,7 @@ from models.prompt import WIND_ANNO_PROMPT
 # 基础实体模型
 class Company(BaseModel):
     """公司实体模型
-    对应Tag: Company
+    对应Tag: Company    加上市公司的注册资本和总资产！！！！！！
     """
     company_name: str = Field(description="公司全称")
     company_abbr: Optional[str] = Field(None, description="公司简称")
@@ -28,6 +28,8 @@ class Company(BaseModel):
     business_scope: Optional[str] = Field(None, description="经营范围")
     company_qualification: Optional[str] = Field(None, description="公司资质")
     is_bond_issuer: Optional[bool] = Field(None, description="是否债券发行人")
+    total_assets: Optional[str] = Field(None, description="总资产")
+    registered_capital: Optional[str] = Field(None, description="注册资本")
     
 # 股票信息模型
 class Stock(BaseModel):
@@ -82,10 +84,7 @@ class Shareholder(BaseModel):
 
 # 子公司信息模型 - 第50行  
 class Subsidiary(BaseModel):
-    """
-    子公司信息模型
-    对应Edge: PARENT_OF
-    对应Edge: HAS_CAPITAL   
+    """子公司信息模型  
     """
     subsidiary_name: str = Field(description="子公司名称")
     is_wholly_owned: Optional[bool] = Field(None, description="是否全资子公司")
@@ -101,13 +100,14 @@ class Subsidiary(BaseModel):
     investment_method: Optional[str] = Field(None, description="资本投资方式（股权转让、收购兼并、资产剥离、资产交易、资产置换、持有证券、设立）")
 
 # 关联公司信息模型 - 第59行
-class RelatedCompany(BaseModel):
+class RelatedParty(BaseModel):
     """
     关联公司信息模型
-    对应Edge: JOINT_VENTURE_OF
+    对应Edge: JOINT_VENTURE_OF   关联方可能是人也可以是公司！！！！！！！！！
     """
-    company_name: str = Field(description="关联公司名称")
-    related_company_type: Optional[str] = Field(None, description="关联公司类型（合营企业、联营企业、关联方等）")
+    related_party_name: str = Field(description="关联方名称")  
+    related_party_type: Optional[str] = Field(None, description="关联方类型（合营企业、联营企业、自然人）")
+
     relationship: Optional[str] = Field(None, description="关联关系描述")
     relationship_percentage: Optional[str] = Field(None, description="关联比例（保持原文格式，如'30%'或'30.0'）")
     business_scope: Optional[str] = Field(None, description="经营范围")
@@ -144,6 +144,7 @@ class Customer(BaseModel):
 class MainBusinessComposition(BaseModel):
     """主营构成信息模型
     对应Tag: Product
+    对应Edge：PRODUCES
     """
     product_name: str = Field(description="主营产品名称")
     business_type: Optional[str] = Field(None, description="业务类型（产品分类、行业分类、地区分类）")
@@ -174,7 +175,7 @@ class CompanyExtractionResult(BaseModel):
     
     # 子公司和关联公司信息
     subsidiaries: Optional[List[Subsidiary]] = Field(None, description="子公司信息列表")
-    related_companies: Optional[List[RelatedCompany]] = Field(None, description="关联公司信息列表")
+    related_companies: Optional[List[RelatedParty]] = Field(None, description="关联公司信息列表")
     
     # 供应商和客户信息
     major_suppliers: Optional[List[Supplier]] = Field(None, description="主要供应商信息列表")
@@ -247,8 +248,9 @@ def gpt_chat(message):
 
 def qwen_chat(message):  
     client = OpenAI(
-        api_key="EMPTY",
-        base_url="http://10.100.0.2:9001/v1",
+        api_key="sk-1234",
+        # base_url="http://10.100.0.2:9001/v1",
+        base_url="http://10.100.0.1:4000",
     )
    
     completion = client.chat.completions.parse(
