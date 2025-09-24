@@ -111,12 +111,12 @@ def main():
     logger.info(f"处理完成！成功: {successful_count}, 失败: {failed_count}")
 
 def test():
-    file_path = "wind_anno/年度报告_windanno_90e0072a-0dc7-51f4-8a8b-55ce703a0bcc原文.md"
+    file_path = "/data/true_nas/zfs_share1/yy/data/wind_anno_md/windanno_b6652f23-7d86-5c30-8b94-e9e03be8583d.md"
     md_content = read_single_md_file(file_path)
     parsed_data = get_report_data(md_content)
     
     # 使用线程锁确保文件写入的线程安全
-    output_file = f"responses/年度报告_windanno_90e0072a-0dc7-51f4-8a8b-55ce703a0bcc原文_qwen_thinking.json"
+    output_file = f"responses/windanno_b6652f23-7d86-5c30-8b94-e9e03be8583d_qwen_thinking.json"
    
     with open(output_file, 'w', encoding='utf-8') as fp:
         fp.write(json.dumps(parsed_data, ensure_ascii=False, indent=2))

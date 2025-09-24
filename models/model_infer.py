@@ -264,11 +264,11 @@ def qwen_chat(message):
         # presence_penalty=0.5,  # 移除惩罚项，避免干扰信息提取
         extra_body={"top_k":20,"min_p":0.0},  # 减少候选词数量
         response_format=CompanyExtractionResult,
-        timeout=1800
+        timeout=3600
     )
     
     return completion.choices[0].message.content
 
-# print(get_models())
+print(get_models())
 # print(qwen_chat("讲个笑话"))
 

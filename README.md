@@ -16,12 +16,15 @@ YIELD
     properties(edge) AS edge_properties;              
 ```
 # 匹配两个点的特定关系，注意点的方向
+```
 MATCH (a)-[e:CUSTOMER_OF]->(b) WHERE id(b) == "威马" AND id(a) == "宁德时代新能源科技股份有限公司" RETURN e
+```
 
 # 遍历点/边   
+```
 LOOKUP ON Company YIELD properties(VERTEX)
 LOOKUP ON Position_Info  YIELD properties(EDGE)   # 边遍历前需在边上建索引
-
+```
 
 # 数据入库计划
 -  20250819：优先处理半年报告、年度报告,其中篇幅最长、信息最多，但更新频率不高；其他临时公告等更新频率高，但篇幅短、信息少
