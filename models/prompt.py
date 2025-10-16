@@ -51,6 +51,7 @@ WIND_ANNO_PROMPT = """
    - period_end_holdings: 期末持股数量（保持原文格式和单位）
    - share_type: 股本类型（限售、非限售）
    - share_percentage: 股份比例（保持原文格式，如'15.2%'或'15.2'）
+   - vote_percentage: 投票权比例（保持原文格式，如'15.2%'或'15.2'）;特别注意：投票权比例不等于持股比例，只有文中特别写明了投票权比例才需要提取，未提及时请默认为null
 
 5. **子公司信息**：
    - subsidiary_name: 子公司名称
@@ -64,6 +65,8 @@ WIND_ANNO_PROMPT = """
    - total_assets: 总资产（保持原文格式和单位）
    - registered_capital: 注册资本（原文格式+单位，如23,959.28万元）
    - investment_method: 资本投资方式（股权转让、收购兼并、资产剥离、资产交易、资产置换、持有证券、设立）
+   - vote_percentage: 投票权比例（保持原文格式，如'15.2%'或'15.2'）；特别注意：投票权比例不等于持股比例，只有文中特别写明了投票权比例才需要提取，未提及时请默认为null
+
 
 6. **关联方信息**：
    - related_party_name: 关联方名称

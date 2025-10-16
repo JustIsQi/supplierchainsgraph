@@ -5,7 +5,7 @@ import os
 from utils.data_prepare import content_to_kv,read_single_md_file,Markdown_header_splits,Markdown2Text_with_header,table_to_text,Markdown2Text
 from models.model_infer import qwen_chat,gpt_chat,CompanyExtractionResult,gpt5_infer
 from models.prompt import WIND_ANNO_PROMPT
-from data_transfer import JSONToNebula
+# from data_transfer import JSONToNebula
 from configs.config import nebula_config
 import pandas as pd
 from utils.split_markdown_by_headers import split_by_headers
@@ -111,7 +111,7 @@ def main():
     logger.info(f"处理完成！成功: {successful_count}, 失败: {failed_count}")
 
 def test():
-    file_path = "/data/true_nas/zfs_share1/yy/data/wind_anno_md/windanno_b6652f23-7d86-5c30-8b94-e9e03be8583d.md"
+    file_path = "/data/data/wind_anno_md/windanno_b6652f23-7d86-5c30-8b94-e9e03be8583d.md"
     md_content = read_single_md_file(file_path)
     parsed_data = get_report_data(md_content)
     

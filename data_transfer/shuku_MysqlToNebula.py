@@ -16,7 +16,6 @@ from tqdm import tqdm
 from collections import Counter
 from pypinyin import lazy_pinyin, Style
 import json
-import hashlib
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -127,7 +126,7 @@ def escape_string_for_nebula(value):
         return f'"{str(value)}"'
 
 class MySQLToNebulaConverter:
-    def __init__(self, mysql_config: Dict, nebula_config: Dict, space_name):
+    def __init__(self, mysql_config: Dict, nebula_config: Dict, space_name: str = "SupplyChainsDev"):
         """
         初始化转换器
         
@@ -142,7 +141,7 @@ class MySQLToNebulaConverter:
         self.mysql_conn = None
         self.nebula_pool = None
         self.nebula_session = None
-        self.batch_size = 10000
+        self.batch_size = 1000
         
     def connect_databases(self):
         """连接MySQL和NebulaGraph数据库"""
@@ -179,9 +178,22 @@ class MySQLToNebulaConverter:
         if self.nebula_pool:
             self.nebula_pool.close()
     
-    def use_graph_space(self):
-        """使用NebulaGraph space"""
+    def create_space_and_schema(self):
+        """创建NebulaGraph space和schema"""
         try:
+            # 创建space
+            create_space_query = f"""
+            CREATE SPACE IF NOT EXISTS {self.space_name} (
+                partition_num = 10, 
+                replica_factor = 1, 
+                vid_type = FIXED_STRING(256)
+            );USE {self.space_name}
+            """
+            result = self.nebula_session.execute(create_space_query)
+            if not result.is_succeeded():
+                logger.error(f"创建space失败: {result.error_msg()}")
+                raise Exception(f"创建space失败: {result.error_msg()}")
+            
             # 使用space
             use_space_query = f"USE {self.space_name}"
             result = self.nebula_session.execute(use_space_query)
@@ -190,6 +202,286 @@ class MySQLToNebulaConverter:
                 raise Exception(f"使用space失败: {result.error_msg()}")
             
             logger.info(f"Space {self.space_name} 创建/使用成功")
+            
+            # 等待schema同步
+            import time
+            time.sleep(10)
+            
+            # 创建Tags (相当于Neo4j的节点标签)
+            tag_queries = [
+                """CREATE TAG IF NOT EXISTS Company (
+                    company_name string NOT NULL,
+                    std_en string,
+                    cdtid string,
+                    csfid string,
+                    orgid string,
+                    is_bond_issuer string,
+                    is_listing string
+                )""",
+                
+                """CREATE TAG IF NOT EXISTS Person (
+                    person_name string NOT NULL,
+                    name_en string,
+                    birth string,
+                    ce_cd string,
+                    ce_sch string,
+                    ce_en string,
+                    profq_code string,
+                    profq_sch string,
+                    profq_en string,
+                    sex_sch string,
+                    sex_en string,
+                    til_sch string,
+                    til_en string,
+                    tilcd string
+                )""",
+                
+                """CREATE TAG IF NOT EXISTS Stock (
+                    stock_code string NOT NULL,
+                    org_en string,
+                    org string,
+                    abbr string,
+                    abbr_en string,
+                    abbr_py string,
+                    mkt_code string,
+                    mkt_en string,
+                    mkt string,
+                    list_status string,
+                    list_dt string,
+                    list_edt string
+                )""",
+                
+                """CREATE TAG IF NOT EXISTS Report (
+                    businessid string NOT NULL,
+                    rpt string,
+                    fp string,
+                    q string,
+                    fy string,
+                    p string,
+                    publish_date string,
+                    report_type string
+                )"""
+            ]
+            
+            # 创建Edge Types (相当于Neo4j的关系类型)
+            edge_queries = [
+                "CREATE EDGE IF NOT EXISTS ISSUES_STOCK ()",
+                "CREATE EDGE IF NOT EXISTS PUBLISHES_REPORT ()",
+                "CREATE EDGE IF NOT EXISTS HAS_REPORT ()",
+                
+                """CREATE EDGE IF NOT EXISTS PARENT_OF (
+                    ticker string,
+                    rpt string,
+                    reg_std string,
+                    unit string,
+                    currency string,
+                    capital double,
+                    ratio double,
+                    vote_ratio double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS SUBSIDIARY_OF (
+                    ticker string,
+                    rpt string,
+                    reg_std string,
+                    bizzplace_std string,
+                    directrate double,
+                    indirectrate double,
+                    totalrate double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS NON_WHOLLY_SUBSIDIARY_OF (
+                    ticker string,
+                    rpt string,
+                    ratio double,
+                    unit string,
+                    currency string,
+                    gains double,
+                    dividend double,
+                    equity double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS JOINT_VENTURE_OF (
+                    ticker string,
+                    rpt string,
+                    reg_sch string,
+                    bizzplace_sch string,
+                    directrate double,
+                    indirectrate double,
+                    totalrate double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS OTHER_RELATED_TO (
+                    ticker string,
+                    rpt string,
+                    relation string
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS CUSTOMER_OF (
+                    ticker string,
+                    rpt string,
+                    cy_sch string,
+                    cy_en string,
+                    unit_sch string,
+                    unit_en string,
+                    amount double,
+                    rate double,
+                    typ string,
+                    age string
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS SUPPLIES_TO (
+                    ticker string,
+                    rpt string,
+                    cy_sch string,
+                    cy_en string,
+                    unit_sch string,
+                    unit_en string,
+                    amount double,
+                    rate double,
+                    typ string,
+                    age string
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS RELATED_SALE (
+                    ticker string,
+                    rpt string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    content string,
+                    amount_curr double,
+                    rate_curr double,
+                    amount_prev double,
+                    rate_prev double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS RELATED_PURCHASE (
+                    ticker string,
+                    rpt string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    content string,
+                    amount_curr double,
+                    rate_curr double,
+                    amount_prev double,
+                    rate_prev double,
+                    amount_limit double,
+                    exceed string
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS OTHER_PAYMENT_TO (
+                    ticker string,
+                    rpt string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    amount double,
+                    rate double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS BAD_DEBT_TO (
+                    ticker string,
+                    rpt string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    typ string,
+                    amount double,
+                    ratio double,
+                    debt double,
+                    description string
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS OTHER_RECEIVABLE_FROM (
+                    ticker string,
+                    rpt string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    amount double,
+                    ratio double,
+                    dt string,
+                    dc string
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS RELATED_AR_FROM (
+                    ticker string,
+                    rpt string,
+                    items_orig string,
+                    items_sch string,
+                    items_en string,
+                    items_code string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    amount_curr double,
+                    rate_curr double,
+                    amount_prev double,
+                    rate_prev double,
+                    debt_curr double,
+                    debt_prev double
+                )""",
+                
+                """CREATE EDGE IF NOT EXISTS RELATED_AP_TO (
+                    ticker string,
+                    rpt string,
+                    items_orig string,
+                    items_sch string,
+                    items_en string,
+                    items_code string,
+                    cy_orig string,
+                    cy_code string,
+                    cy_unit string,
+                    amount_curr double,
+                    rate_curr double,
+                    amount_prev double,
+                    rate_prev double
+                )"""
+            ]
+            
+            # 执行创建Tag的查询
+            for query in tag_queries:
+                result = self.nebula_session.execute(query)
+                if not result.is_succeeded():
+                    logger.warning(f"创建Tag失败: {result.error_msg()}")
+                else:
+                    logger.info(f"创建Tag成功: {query.split()[4]}")
+            
+            # 等待schema同步
+            time.sleep(5)
+            
+            # 执行创建Edge的查询
+            for query in edge_queries:
+                result = self.nebula_session.execute(query)
+                if not result.is_succeeded():
+                    logger.warning(f"创建Edge失败: {result.error_msg()}")
+                else:
+                    logger.info(f"创建Edge成功: {query.split()[4]}")
+            
+            # 等待schema同步
+            time.sleep(5)
+            
+            # 创建索引
+            index_queries = [
+                "CREATE TAG INDEX IF NOT EXISTS company_name_index ON Company(company_name(256))",
+                "CREATE TAG INDEX IF NOT EXISTS person_name_index ON Person(person_name(256))",
+                "CREATE TAG INDEX IF NOT EXISTS stock_code_index ON Stock(stock_code(64))",
+                "CREATE TAG INDEX IF NOT EXISTS businessid_index ON Report(businessid(64))"
+            ]
+            
+            for query in index_queries:
+                result = self.nebula_session.execute(query)
+                if not result.is_succeeded():
+                    logger.warning(f"创建索引失败: {result.error_msg()}")
+                else:
+                    logger.info(f"创建索引成功")
+            
+            # 等待索引生效
+            time.sleep(10)
+            
+            logger.info("Schema创建完成")
             
         except Exception as e:
             logger.error(f"创建schema失败: {e}")
@@ -265,19 +557,6 @@ class MySQLToNebulaConverter:
             logger.warning(f"计算日期rank时发生错误: {e}, 日期: {date_str}")
             return 0
     
-    def vertex_exists(self, vid: str) -> bool:
-        """检查顶点是否存在"""
-        try:
-            query = f'MATCH (v) WHERE id(v) == {escape_string_for_nebula(vid)} RETURN v LIMIT 1'
-            print(query)
-            success, result = self._execute_batch_insert(query, f"检查顶点{vid}是否存在")
-            if success and result.row_size() > 0:
-                return True
-            return False
-        except Exception as e:
-            logger.warning(f"检查顶点存在性时发生异常: {e}, 假设顶点不存在")
-            return False
-    
     def clear_space(self):
         """清空space中的所有数据"""
         try:
@@ -314,15 +593,12 @@ class MySQLToNebulaConverter:
             logger.error(f"{description}异常: {e}")
             logger.error(f"查询: {query[:500]}...")
             return False
-
-    def genegerate_vid(self,name:str):
-        vid = hashlib.md5(name.encode("utf-8")).hexdigest()
-        return vid
     
     def migrate_std_org(self):
         """迁移企业信息表 - 创建Company顶点"""
         query = """
-        SELECT std_sch, std_en FROM std_org where std_sch is not null
+        SELECT id, csfid, std_sch, std_en, cdtid, orgid
+        FROM std_org
         """
         
         df = pd.read_sql(query, self.mysql_conn)
@@ -333,20 +609,18 @@ class MySQLToNebulaConverter:
             values = []
             for _, row in batch_df.iterrows():
                 # 使用公司名称作为VID
-                
+                vid = escape_string_for_nebula(row['std_sch'])
                 company_name = escape_string_for_nebula(row['std_sch'])
-                company_name_en = escape_string_for_nebula(row['std_en'] if pd.notna(row['std_en']) else '')
-                vid = self.genegerate_vid(company_name)
-
-                # if self.vertex_exists(vid):
-                #     logger.info(f"公司顶点已存在: {company_name}")
-                #     continue
+                std_en = escape_string_for_nebula(row['std_en'] if pd.notna(row['std_en']) else '')
+                cdtid = escape_string_for_nebula(row['cdtid'] if pd.notna(row['cdtid']) else '')
+                csfid = escape_string_for_nebula(row['csfid'] if pd.notna(row['csfid']) else '')
+                orgid = escape_string_for_nebula(row['orgid'] if pd.notna(row['orgid']) else '')
                 
-                values.append(f"{escape_string_for_nebula(vid)}: ({escape_string_for_nebula(company_name)}, {escape_string_for_nebula(company_name_en)}, \"\")")
+                values.append(f"{vid}: ({company_name}, {std_en}, {cdtid}, {csfid}, {orgid}, \"\", \"\")")
             
             if values:
                 insert_query = f"""
-                INSERT VERTEX Company(company_name, company_name_en, company_abbr) VALUES
+                INSERT VERTEX Company(company_name, std_en, cdtid, csfid, orgid, is_bond_issuer, is_listing) VALUES
                 {', '.join(values)}
                 """
                 
@@ -357,7 +631,9 @@ class MySQLToNebulaConverter:
     def migrate_new_base_people(self):
         """迁移人物信息表 - 创建Person顶点"""
         query = """
-        SELECT  name_sch, name_en, birth, ce_sch,  sex_sch FROM new_base_people WHERE name_sch is not null
+        SELECT id, name_sch, name_en, birth, ce_cd, ce_sch, ce_en,
+               profq_code, profq_sch, profq_en, sex_sch, sex_en, til_sch, til_en, tilcd
+        FROM new_base_people
         """
         
         df = pd.read_sql(query, self.mysql_conn)
@@ -366,22 +642,30 @@ class MySQLToNebulaConverter:
         for idx, batch_df in enumerate(tqdm(data_batches, total=len(data_batches), desc="迁移 new_base_people 数据")):
             values = []
             for _, row in batch_df.iterrows():
-                
+                vid = escape_string_for_nebula(str(row['id']))
                 person_name = escape_string_for_nebula(row['name_sch'] if pd.notna(row['name_sch']) else '')
-                person_name_en = escape_string_for_nebula(row['name_en'] if pd.notna(row['name_en']) else '')
+                name_en = escape_string_for_nebula(row['name_en'] if pd.notna(row['name_en']) else '')
                 birth = escape_string_for_nebula(str(row['birth']) if pd.notna(row['birth']) else '')
-                education_level = escape_string_for_nebula(row['ce_sch'] if pd.notna(row['ce_sch']) else '')
-                sex = escape_string_for_nebula(row['sex_sch'] if pd.notna(row['sex_sch']) else '')
-
-                vid = self.genegerate_vid(person_name)
+                ce_cd = escape_string_for_nebula(row['ce_cd'] if pd.notna(row['ce_cd']) else '')
+                ce_sch = escape_string_for_nebula(row['ce_sch'] if pd.notna(row['ce_sch']) else '')
+                ce_en = escape_string_for_nebula(row['ce_en'] if pd.notna(row['ce_en']) else '')
+                profq_code = escape_string_for_nebula(row['profq_code'] if pd.notna(row['profq_code']) else '')
+                profq_sch = escape_string_for_nebula(row['profq_sch'] if pd.notna(row['profq_sch']) else '')
+                profq_en = escape_string_for_nebula(row['profq_en'] if pd.notna(row['profq_en']) else '')
+                sex_sch = escape_string_for_nebula(row['sex_sch'] if pd.notna(row['sex_sch']) else '')
+                sex_en = escape_string_for_nebula(row['sex_en'] if pd.notna(row['sex_en']) else '')
+                til_sch = escape_string_for_nebula(row['til_sch'] if pd.notna(row['til_sch']) else '')
+                til_en = escape_string_for_nebula(row['til_en'] if pd.notna(row['til_en']) else '')
+                tilcd = escape_string_for_nebula(row['tilcd'] if pd.notna(row['tilcd']) else '')
                 
-                values.append(f"{escape_string_for_nebula(vid)}: ({person_name}, {person_name_en}, {birth}, {education_level}, {sex})")
+                values.append(f"{vid}: ({person_name}, {name_en}, {birth}, {ce_cd}, {ce_sch}, {ce_en}, {profq_code}, {profq_sch}, {profq_en}, {sex_sch}, {sex_en}, {til_sch}, {til_en}, {tilcd})")
             
             if values:
                 insert_query = f"""
-                INSERT VERTEX Person(person_name, person_name_en, birth, education_level, sex) VALUES
+                INSERT VERTEX Person(person_name, name_en, birth, ce_cd, ce_sch, ce_en, profq_code, profq_sch, profq_en, sex_sch, sex_en, til_sch, til_en, tilcd) VALUES
                 {', '.join(values)}
-                """                
+                """
+                
                 self._execute_batch_insert(insert_query, f"迁移 new_base_people 批次 {idx + 1}/{len(data_batches)}")
         
         logger.info(f"迁移完成 new_base_people: {len(df)} 条记录")
@@ -389,7 +673,8 @@ class MySQLToNebulaConverter:
     def migrate_base_stock(self):
         """迁移证券基础信息表 - 创建Stock顶点"""
         query = """
-        select ticker,abbr,mkt,list_dt,list_edt from base_stock where ticker is not null
+        SELECT id, ticker, org_en, org, abbr, abbr_en, abbr_py, mkt_code, mkt_en, mkt, list_status, list_dt, list_edt
+        FROM base_stock
         """
         
         df = pd.read_sql(query, self.mysql_conn)
@@ -398,20 +683,25 @@ class MySQLToNebulaConverter:
         for idx, batch_df in enumerate(tqdm(data_batches, total=len(data_batches), desc="迁移 base_stock 数据")):
             values = []
             for _, row in batch_df.iterrows():
-                
-                stock_code = escape_string_for_nebula(row['ticker']) 
+                vid = escape_string_for_nebula(row['ticker'])
+                stock_code = escape_string_for_nebula(row['ticker'])
+                org_en = escape_string_for_nebula(row['org_en'] if pd.notna(row['org_en']) else '')
+                org = escape_string_for_nebula(row['org'] if pd.notna(row['org']) else '')
                 abbr = escape_string_for_nebula(row['abbr'] if pd.notna(row['abbr']) else '')
+                abbr_en = escape_string_for_nebula(row['abbr_en'] if pd.notna(row['abbr_en']) else '')
+                abbr_py = escape_string_for_nebula(row['abbr_py'] if pd.notna(row['abbr_py']) else '')
+                mkt_code = escape_string_for_nebula(row['mkt_code'] if pd.notna(row['mkt_code']) else '')
+                mkt_en = escape_string_for_nebula(row['mkt_en'] if pd.notna(row['mkt_en']) else '')
                 mkt = escape_string_for_nebula(row['mkt'] if pd.notna(row['mkt']) else '')
+                list_status = escape_string_for_nebula(row['list_status'] if pd.notna(row['list_status']) else '')
                 list_dt = escape_string_for_nebula(str(row['list_dt']) if pd.notna(row['list_dt']) else '')
                 list_edt = escape_string_for_nebula(str(row['list_edt']) if pd.notna(row['list_edt']) else '')
-
-                vid = self.genegerate_vid(stock_code)
                 
-                values.append(f"{escape_string_for_nebula(vid)}: ({stock_code}, {abbr}, \"\", {mkt}, {list_dt}, {list_edt})")
+                values.append(f"{vid}: ({stock_code}, {org_en}, {org}, {abbr}, {abbr_en}, {abbr_py}, {mkt_en}, {mkt}, {list_status}, {list_dt}, {list_edt})")
             
             if values:
                 insert_query = f"""
-                INSERT VERTEX Stock(stock_code, stock_name, stock_type, exchange, list_dt, list_edt) VALUES
+                INSERT VERTEX Stock(stock_code, org_en, org, abbr, abbr_en, abbr_py, mkt_en, mkt, list_status, list_dt, list_edt) VALUES
                 {', '.join(values)}
                 """
                 
@@ -419,21 +709,143 @@ class MySQLToNebulaConverter:
         
         logger.info(f"迁移完成 base_stock: {len(df)} 条记录")
     
-    def migrate_equity_parent_company(self):
-        """迁移母公司情况表 
-        - 母公司基础情况表 Company -> Company 
-        - 创建Parent_of关系
-
-        股东和母公司都可能出现表决权比例
-        """
+    def migrate_fin_report_date(self):
+        """迁移财务定期报告公告日表 - 创建Report顶点"""
         query = """
-        WITH C AS (SELECT a.secu, a.rpt, a.reg_std, a.unit, a.capital, a.ratio, a.vote_ratio, s.std_sch as parent_orig
+        SELECT businessid, rpt, fp, q, fy, p, publish_date, report_type
+        FROM fin_report_date
+        """
+        
+        df = pd.read_sql(query, self.mysql_conn)
+        data_batches = [df[i:i + self.batch_size] for i in range(0, len(df), self.batch_size)]
+        
+        for idx, batch_df in enumerate(tqdm(data_batches, total=len(data_batches), desc="迁移 fin_report_date 数据")):
+            values = []
+            for _, row in batch_df.iterrows():
+                vid = escape_string_for_nebula(row['businessid'])
+                businessid = escape_string_for_nebula(row['businessid'])
+                rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
+                fp = escape_string_for_nebula(str(row['fp']) if pd.notna(row['fp']) else '')
+                q = escape_string_for_nebula(str(row['q']) if pd.notna(row['q']) else '')
+                fy = escape_string_for_nebula(str(row['fy']) if pd.notna(row['fy']) else '')
+                p = escape_string_for_nebula(str(row['p']) if pd.notna(row['p']) else '')
+                publish_date = escape_string_for_nebula(str(row['publish_date']) if pd.notna(row['publish_date']) else '')
+                report_type = escape_string_for_nebula(row['report_type'] if pd.notna(row['report_type']) else '')
+                
+                values.append(f"{vid}: ({businessid}, {rpt}, {fp}, {q}, {fy}, {p}, {publish_date}, {report_type})")
+            
+            if values:
+                insert_query = f"""
+                INSERT VERTEX Report(businessid, rpt, fp, q, fy, p, publish_date, report_type) VALUES
+                {', '.join(values)}
+                """
+                
+                self._execute_batch_insert(insert_query, f"迁移 fin_report_date 批次 {idx + 1}/{len(data_batches)}")
+        
+        logger.info(f"迁移完成 fin_report_date: {len(df)} 条记录")
+    
+    def create_stock_company_relationships(self):
+        """创建Stock和Company之间的关系"""
+        query = """
+        SELECT s.std_sch, c.ticker 
+        FROM std_org s 
+        JOIN base_stock c ON s.ref_company_id = c.csfid
+        """
+        df = pd.read_sql(query, self.mysql_conn)
+        
+        if df.empty:
+            logger.info("没有找到Stock-Company关系数据")
+            return
+        
+        data_batches = [df[i:i + self.batch_size] for i in range(0, len(df), self.batch_size)]
+        
+        for idx, batch_df in enumerate(tqdm(data_batches, total=len(data_batches), desc="创建 Stock-Company 关系")):
+            values = []
+            for _, row in batch_df.iterrows():
+                company_vid = escape_string_for_nebula(row['std_sch'])
+                stock_vid = escape_string_for_nebula(row['ticker'])
+                values.append(f"{company_vid} -> {stock_vid}: ()")
+            
+            if values:
+                insert_query = f"""
+                INSERT EDGE ISSUES_STOCK() VALUES
+                {', '.join(values)}
+                """
+                
+                self._execute_batch_insert(insert_query, f"创建 Stock-Company 关系批次 {idx + 1}/{len(data_batches)}")
+        
+        logger.info(f"创建Stock-Company关系完成: {len(df)} 条记录")
+    
+    def create_report_relationships(self):
+        """创建Report和Company/Stock之间的关系"""
+        # Company-Report关系
+        query1 = """
+        SELECT r.businessid, c.std_sch,r.rpt
+        FROM fin_report_date r
+        JOIN std_org c ON LEFT(r.businessid,13) = c.ref_company_id
+        """
+        df1 = pd.read_sql(query1, self.mysql_conn)
+        
+        if not df1.empty:
+            data_batches = [df1[i:i + self.batch_size] for i in range(0, len(df1), self.batch_size)]
+            
+            for idx, batch_df in enumerate(tqdm(data_batches, total=len(data_batches), desc="创建 Company-Report 关系")):
+                values = []
+                for _, row in batch_df.iterrows():
+                    company_vid = escape_string_for_nebula(row['std_sch'])
+                    report_vid = escape_string_for_nebula(row['businessid'])
+                    rpt = escape_string_for_nebula(str(row['rpt']).strip() if pd.notna(row['rpt']) else '')
+                    rank = self.calculate_rank_from_date(rpt)
+                    values.append(f"{company_vid} -> {report_vid} @{rank}: ({rpt})")
+                
+                if values:
+                    insert_query = f"""
+                    INSERT EDGE PUBLISHES_REPORT() VALUES
+                    {', '.join(values)}
+                    """
+                    
+                    self._execute_batch_insert(insert_query, f"创建 Company-Report 关系批次 {idx + 1}/{len(data_batches)}")
+        
+        # Stock-Report关系
+        query2 = """
+        SELECT r.businessid, s.ticker,r.rpt
+        FROM fin_report_date r
+        JOIN base_stock s ON LEFT(r.businessid,13) = s.csfid
+        """
+        df2 = pd.read_sql(query2, self.mysql_conn)
+        
+        if not df2.empty:
+            data_batches = [df2[i:i + self.batch_size] for i in range(0, len(df2), self.batch_size)]
+            
+            for idx, batch_df in enumerate(tqdm(data_batches, total=len(data_batches), desc="创建 Stock-Report 关系")):
+                values = []
+                for _, row in batch_df.iterrows():
+                    stock_vid = escape_string_for_nebula(row['ticker'])
+                    report_vid = escape_string_for_nebula(row['businessid'])
+                    rpt = escape_string_for_nebula(str(row['rpt']).strip() if pd.notna(row['rpt']) else '')
+                    rank = self.calculate_rank_from_date(rpt)
+                    values.append(f"{stock_vid} -> {report_vid} @{rank}: ({rpt})")
+                
+                if values:
+                    insert_query = f"""
+                    INSERT EDGE HAS_REPORT() VALUES
+                    {', '.join(values)}
+                    """
+                    
+                    self._execute_batch_insert(insert_query, f"创建 Stock-Report 关系批次 {idx + 1}/{len(data_batches)}")
+        
+        logger.info("创建Report关系完成")
+    
+    def migrate_equity_parent_company(self):
+        """迁移母公司情况表 - 创建PARENT_OF关系"""
+        query = """
+        WITH C AS (SELECT a.secu,a.ticker, a.rpt, a.parent_cat, a.parent_id, a.reg_std, a.unit, a.currency, a.capital, a.ratio, a.vote_ratio, s.std_sch as parent_orig
         FROM equity_parent_company a
         JOIN std_org s ON a.parent_id = s.ref_company_id and a.parent_orig != s.std_sch and a.parent_cat = 2)
         SELECT 
             b.org as tar_name,C.*
         FROM C
-        JOIN base_stock b ON b.code = C.secu where b.org is not null and C.parent_orig is not null
+        JOIN base_stock b ON b.code = C.secu
         """
         df = pd.read_sql(query, self.mysql_conn)
         
@@ -444,85 +856,52 @@ class MySQLToNebulaConverter:
         for _, row in df.iterrows():
             if not is_valid_data(row['parent_orig'], row['tar_name']):
                 continue
-            # if row['parent_cat'] == 2:  # 机构
-            company_data.append(row)
+            if row['parent_cat'] == 2:  # 机构
+                company_data.append(row)
            
+        
         # 处理公司数据
         if company_data:
             # 首先插入可能不存在的公司顶点
             company_vertices = []
             for row in company_data:
-                parent_company_name = escape_string_for_nebula(row['parent_orig'])
-                sub_company_name = escape_string_for_nebula(row['tar_name'])
-
-                parent_vid = self.genegerate_vid(parent_company_name)
-                sub_vid = self.genegerate_vid(sub_company_name)
-
-                company_vertices.append(f"{escape_string_for_nebula(parent_vid)}: ({escape_string_for_nebula(parent_company_name)}, \"\", \"\")")
-                company_vertices.append(f"{escape_string_for_nebula(sub_vid)}: ({escape_string_for_nebula(sub_company_name)}, \"\", \"\")")
+                vid = escape_string_for_nebula(row['parent_orig'])
+                company_name = escape_string_for_nebula(row['parent_orig'])
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 # 分批插入顶点
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
                 for idx, batch in enumerate(vertex_batches):
                     insert_vertex_query = f"""
-                    INSERT VERTEX Company(company_name, company_name_en, company_abbr) VALUES
+                    INSERT VERTEX Company(company_name, std_en, cdtid, csfid, orgid, is_bond_issuer, is_listing) VALUES
                     {', '.join(batch)}
                     """
                     self._execute_batch_insert(insert_vertex_query, f"插入parent公司顶点批次 {idx + 1}")
             
-            # 插入Base_Company_Info边
+            # 插入边
             edge_batches = [company_data[i:i + self.batch_size] for i in range(0, len(company_data), self.batch_size)]
             for idx, batch in enumerate(edge_batches):
                 edge_values = []
                 for row in batch:
-                    parent_company = escape_string_for_nebula(row['parent_orig'])
-                    vid = self.genegerate_vid(parent_company)
+                    parent_vid = escape_string_for_nebula(row['parent_orig'])
+                    child_vid = escape_string_for_nebula(row['tar_name'])
+                    ticker = escape_string_for_nebula(row['ticker'] if pd.notna(row['ticker']) else '')
                     rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
                     rank = self.calculate_rank_from_date(rpt)
 
                     reg_std = escape_string_for_nebula(row['reg_std'] if pd.notna(row['reg_std']) else '')
-                    unit = row['unit'] if pd.notna(row['unit']) else ''
-                    capital = str(row['capital'])+unit if pd.notna(row['capital']) else "0.0"+unit
-                    capital = escape_string_for_nebula(capital)
-                    
-                    edge_values.append(f"{escape_string_for_nebula(vid)} -> {escape_string_for_nebula(vid)} @{rank}: ({reg_std}, \"\", \"\", \"\", \"\", \"\",\"\",\"\",{capital},{rpt})")
-                
-                if edge_values:
-                    insert_edge_query = f"""
-                    INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital,report_date) VALUES
-                    {', '.join(edge_values)}
-                    """
-                    self._execute_batch_insert(insert_edge_query, f"插入PARENT_OF关系批次 {idx + 1}")
-
-            # 插入PARENT_OF关系
-            edge_batches = [company_data[i:i + self.batch_size] for i in range(0, len(company_data), self.batch_size)]
-            for idx, batch in enumerate(edge_batches):
-                edge_values = []
-                for row in batch:
-                    parent_company = escape_string_for_nebula(row['parent_orig'])
-                    sub_company = escape_string_for_nebula(row['tar_name'])
-                    parent_vid = self.genegerate_vid(parent_company)
-                    sub_vid = self.genegerate_vid(sub_company)
-
-                    rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
-                    rank = self.calculate_rank_from_date(rpt)
-
+                    unit = escape_string_for_nebula(row['unit'] if pd.notna(row['unit']) else '')
+                    currency = escape_string_for_nebula(row['currency'] if pd.notna(row['currency']) else '')
+                    capital = str(row['capital']) if pd.notna(row['capital']) else "0.0"
                     ratio = str(row['ratio']) if pd.notna(row['ratio']) else "0.0"
-                    if float(ratio) < 1:
-                        is_wholly_owned = False
-                    else:
-                        is_wholly_owned = True
-
-                    ratio = escape_string_for_nebula(ratio)
-
                     vote_ratio = str(row['vote_ratio']) if pd.notna(row['vote_ratio']) else "0.0"
-                    vote_ratio = escape_string_for_nebula(vote_ratio)
-                    edge_values.append(f"{escape_string_for_nebula(parent_vid)} -> {escape_string_for_nebula(sub_vid)} @{rank}: ({is_wholly_owned}, \"\", \"\", {ratio}, False, \"\",\"\",{vote_ratio},{rpt})")
+                    
+                    edge_values.append(f"{parent_vid} -> {child_vid} @{rank}: ({ticker}, {rpt}, {reg_std}, {unit}, {currency}, {capital}, {ratio}, {vote_ratio})")
                 
                 if edge_values:
                     insert_edge_query = f"""
-                    INSERT EDGE Parent_Of(is_wholly_owned, subsidiary_type, subsidiary_relationship, ownership_percentage, is_consolidated, investment_amount, investment_method, vote_percentage,report_date) VALUES
+                    INSERT EDGE PARENT_OF(ticker, rpt, reg_std, unit, currency, capital, ratio, vote_ratio) VALUES
                     {', '.join(edge_values)}
                     """
                     self._execute_batch_insert(insert_edge_query, f"插入PARENT_OF关系批次 {idx + 1}")
@@ -530,17 +909,15 @@ class MySQLToNebulaConverter:
         logger.info(f"迁移完成 equity_parent_company: {len(df)} 条记录")
     
     def migrate_equity_subsidiary_base(self):
-        """迁移子公司基本情况表 
-        - 母公司基础情况表 Company -> Company 
-        - 创建SUBSIDIARY_OF关系"""
+        """迁移子公司基本情况表 - 创建SUBSIDIARY_OF关系"""
         query = """
-        WITH C AS (SELECT a.secu, a.rpt, s.std_sch as subs_orig, a.subs_cat, a.reg_std , a.bizzplace_std ,a.directrate,a.indirectrate
+        WITH C AS (SELECT a.secu,a.ticker, a.rpt, s.std_sch as subs_orig, a.subs_cat,a.subs_id, a.reg_std, a.bizzplace_std,a.directrate ,a.indirectrate ,a.totalrate
         FROM equity_subsidiary_base a
         JOIN std_org s ON a.subs_id = s.ref_company_id and a.subs_orig != s.std_sch and a.subs_cat = 2)
         SELECT 
             b.org as tar_name,C.*
         FROM C
-        JOIN base_stock b ON b.code = C.secu where b.org is not null and C.subs_orig is not null
+        JOIN base_stock b ON b.code = C.secu
         """
         
         df = pd.read_sql(query, self.mysql_conn)
@@ -548,225 +925,90 @@ class MySQLToNebulaConverter:
         for _, row in df.iterrows():
             if not is_valid_data(row['subs_orig'], row['tar_name']):
                 continue
-            company_data.append(row)
+            if row['subs_cat'] == 2:  # 机构
+                company_data.append(row)
         
         if company_data:
             # 插入可能不存在的公司顶点
             company_vertices = []
             for row in company_data:
-                
-                sub_company_name = escape_string_for_nebula(row['subs_orig'])
-                parent_company_name = escape_string_for_nebula(row['tar_name'])
-
-                sub_vid = self.genegerate_vid(sub_company_name)
-                parent_vid = self.genegerate_vid(parent_company_name)
-
-                company_vertices.append(f"{escape_string_for_nebula(sub_vid)}: ({escape_string_for_nebula(sub_company_name)}, \"\", \"\")")
-                company_vertices.append(f"{escape_string_for_nebula(parent_vid)}: ({escape_string_for_nebula(parent_company_name)}, \"\", \"\")")
+                vid = escape_string_for_nebula(row['subs_orig'])
+                company_name = escape_string_for_nebula(row['subs_orig'])
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
                 for idx, batch in enumerate(vertex_batches):
                     insert_vertex_query = f"""
-                    INSERT VERTEX Company(company_name, company_name_en, company_abbr) VALUES
+                    INSERT VERTEX Company(company_name, std_en, cdtid, csfid, orgid, is_bond_issuer, is_listing) VALUES
                     {', '.join(batch)}
                     """
                     self._execute_batch_insert(insert_vertex_query, f"插入subsidiary公司顶点批次 {idx + 1}")
             
-            # 插入Base_Company_Info边
+            # 插入边
             edge_batches = [company_data[i:i + self.batch_size] for i in range(0, len(company_data), self.batch_size)]
             for idx, batch in enumerate(edge_batches):
                 edge_values = []
                 for row in batch:
-                    sub_company_name = escape_string_for_nebula(row['subs_orig'])
-                    vid = self.genegerate_vid(sub_company_name)
-
+                    sub_vid = escape_string_for_nebula(row['subs_orig'])
+                    parent_vid = escape_string_for_nebula(row['tar_name'])
+                    ticker = escape_string_for_nebula(row['ticker'] if pd.notna(row['ticker']) else '')
                     rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
                     rank = self.calculate_rank_from_date(rpt)
-
                     reg_std = escape_string_for_nebula(row['reg_std'] if pd.notna(row['reg_std']) else '')
                     bizzplace_std = escape_string_for_nebula(row['bizzplace_std'] if pd.notna(row['bizzplace_std']) else '')
-
-                    edge_values.append(f"{escape_string_for_nebula(vid)} -> {escape_string_for_nebula(vid)} @{rank}: ({reg_std}, {bizzplace_std},\"\",\"\",\"\",\"\",\"\",\"\",\"\",{rpt})")
+                    directrate = str(row['directrate']) if pd.notna(row['directrate']) else "0.0"
+                    indirectrate = str(row['indirectrate']) if pd.notna(row['indirectrate']) else "0.0"
+                    totalrate = str(row['totalrate']) if pd.notna(row['totalrate']) else "0.0"
+                    
+                    edge_values.append(f"{sub_vid} -> {parent_vid} @{rank}: ({ticker}, {rpt}, {reg_std}, {bizzplace_std}, {directrate}, {indirectrate}, {totalrate})")
                 
                 if edge_values:
                     insert_edge_query = f"""
-                    INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital,report_date) VALUES
+                    INSERT EDGE SUBSIDIARY_OF(ticker, rpt, reg_std, bizzplace_std, directrate, indirectrate, totalrate) VALUES
                     {', '.join(edge_values)}
                     """
                     self._execute_batch_insert(insert_edge_query, f"插入SUBSIDIARY_OF关系批次 {idx + 1}")
-            
-            # 插入Subsidiary关系
-            edge_batches = [company_data[i:i + self.batch_size] for i in range(0, len(company_data), self.batch_size)]
-            for idx, batch in enumerate(edge_batches):
-                edge_values = []
-                for row in batch:
-                    sub_company_name = escape_string_for_nebula(row['subs_orig'])
-                    parent_company_name = escape_string_for_nebula(row['tar_name'])
-
-                    parent_vid = self.genegerate_vid(parent_company_name)
-                    sub_vid = self.genegerate_vid(sub_company_name)
-
-                    rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
-                    rank = self.calculate_rank_from_date(rpt)
-
-                    directrate = float(row['directrate']) if pd.notna(row['directrate']) else 0.0
-                    indirectrate = float(row['indirectrate']) if pd.notna(row['indirectrate']) else 0.0
-                    totalrate = directrate + indirectrate
-
-                    if float(totalrate) < 1:
-                        is_wholly_owned = False
-                    else:
-                        is_wholly_owned = True
-                    totalrate = escape_string_for_nebula(str(totalrate))
-                    
-                    edge_values.append(f"{escape_string_for_nebula(sub_vid)} -> {escape_string_for_nebula(parent_vid)} @{rank}: ({is_wholly_owned}, \"\", \"\", {totalrate}, False, \"\",\"\",\"\",{rpt})")
-                
-                if edge_values:
-                    insert_edge_query = f"""
-                    INSERT EDGE Subsidiary(is_wholly_owned, subsidiary_type, subsidiary_relationship, ownership_percentage, is_consolidated, investment_amount, investment_method, vote_percentage,report_date) VALUES
-                    {', '.join(edge_values)}
-                    """
-                    self._execute_batch_insert(insert_edge_query, f"插入Subsidiary关系批次 {idx + 1}")
-        logger.info(f"迁移完成 equity_subsidiary_base: {len(df)} 条记录")
-    
-
-    def migrate_assc_jc_base(self):
-        """迁移关联公司基本情况表 
-        - 关联公司基础情况表 Company -> Company 
-        - 创建Related_Company关系"""
-        query = """
-        WITH C AS (SELECT a.secu, a.rpt, s.std_sch as subs_orig, a.reg_sch, a.bizzplace_sch,a.directrate,a.indirectrate
-        FROM equity_assc_jc a
-        JOIN std_org s ON a.jc_id = s.ref_company_id and a.jc_orig != s.std_sch and a.jc_cat = 2)
-        SELECT b.org as tar_name,C.*
-        FROM C
-        JOIN base_stock b ON b.code = C.secu where b.org is not null and C.subs_orig is not null
-        """
         
-        df = pd.read_sql(query, self.mysql_conn)
-        company_data = []
-        for _, row in df.iterrows():
-            if not is_valid_data(row['subs_orig'], row['tar_name']):
-                continue
-            company_data.append(row)
-        
-        if company_data:
-            # 插入可能不存在的公司顶点
-            company_vertices = []
-            for row in company_data:
-                
-                jc_company_name = escape_string_for_nebula(row['subs_orig'])
-                parent_company_name = escape_string_for_nebula(row['tar_name'])
-
-                jc_vid = self.genegerate_vid(jc_company_name)
-                parent_vid = self.genegerate_vid(parent_company_name)
-
-                company_vertices.append(f"{escape_string_for_nebula(jc_vid)}: ({escape_string_for_nebula(jc_company_name)}, \"\", \"\")")
-                company_vertices.append(f"{escape_string_for_nebula(parent_vid)}: ({escape_string_for_nebula(parent_company_name)}, \"\", \"\")")
-            
-            if company_vertices:
-                vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
-                for idx, batch in enumerate(vertex_batches):
-                    insert_vertex_query = f"""
-                    INSERT VERTEX Company(company_name, company_name_en, company_abbr) VALUES
-                    {', '.join(batch)}
-                    """
-                    self._execute_batch_insert(insert_vertex_query, f"插入关联公司顶点批次 {idx + 1}")
-            
-            # 插入Base_Company_Info边
-            edge_batches = [company_data[i:i + self.batch_size] for i in range(0, len(company_data), self.batch_size)]
-            for idx, batch in enumerate(edge_batches):
-                edge_values = []
-                for row in batch:
-                    jc_company_name = escape_string_for_nebula(row['subs_orig'])
-                    vid = self.genegerate_vid(jc_company_name)
-
-                    rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
-                    rank = self.calculate_rank_from_date(rpt)
-
-                    reg_std = escape_string_for_nebula(row['reg_sch'] if pd.notna(row['reg_sch']) else '')
-                    bizzplace_std = escape_string_for_nebula(row['bizzplace_sch'] if pd.notna(row['bizzplace_sch']) else '')
-
-                    edge_values.append(f"{escape_string_for_nebula(vid)} -> {escape_string_for_nebula(vid)} @{rank}: ({reg_std}, {bizzplace_std},\"\",\"\",\"\",\"\",\"\",\"\",\"\",{rpt})")
-                
-                if edge_values:
-                    insert_edge_query = f"""
-                    INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital,report_date) VALUES
-                    {', '.join(edge_values)}
-                    """
-                    self._execute_batch_insert(insert_edge_query, f"插入SUBSIDIARY_OF关系批次 {idx + 1}")
-            
-            # 插入Subsidiary关系
-            edge_batches = [company_data[i:i + self.batch_size] for i in range(0, len(company_data), self.batch_size)]
-            for idx, batch in enumerate(edge_batches):
-                edge_values = []
-                for row in batch:
-                    related_company_name = escape_string_for_nebula(row['subs_orig'])
-                    parent_company_name = escape_string_for_nebula(row['tar_name'])
-
-                    parent_vid = self.genegerate_vid(parent_company_name)
-                    related_vid = self.genegerate_vid(related_company_name)
-
-                    rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
-                    rank = self.calculate_rank_from_date(rpt)
-
-                    directrate = float(row['directrate']) if pd.notna(row['directrate']) else 0.0
-                    indirectrate = float(row['indirectrate']) if pd.notna(row['indirectrate']) else 0.0
-                    totalrate = directrate + indirectrate
-
-                    relationship_percentage = escape_string_for_nebula(str(totalrate))
-                    relationship = escape_string_for_nebula("合联营")
-                    
-                    edge_values.append(f"{escape_string_for_nebula(related_vid)} -> {escape_string_for_nebula(parent_vid)} @{rank}: ({relationship}, {relationship_percentage}, \"\",{rpt})")
-                
-                if edge_values:
-                    insert_edge_query = f"""
-                    INSERT EDGE Related_Company(relationship, relationship_percentage, business_scope,report_date) VALUES
-                    {', '.join(edge_values)}
-                    """
-                    self._execute_batch_insert(insert_edge_query, f"插入Subsidiary关系批次 {idx + 1}")
         logger.info(f"迁移完成 equity_subsidiary_base: {len(df)} 条记录")
     
     def migrate_equity_customer(self):
         """迁移供应链重要客户表 - 创建CUSTOMER_OF关系"""
         query = """
-        WITH C AS (SELECT a.secu, a.rpt, s.std_sch as customer_orig, a.unit_sch, a.amount, a.rate, a.typ
+        WITH C AS (SELECT a.secu,a.ticker, a.rpt, s.std_sch as customer_orig, a.customer_id, a.customer_cat, a.cy_sch, a.cy_en, a.unit_sch, a.unit_en, a.amount, a.rate, a.typ, a.age
         FROM equity_customer a
-        JOIN std_org s ON a.customer_id = s.ref_company_id AND a.customer_orig != s.std_sch AND a.customer_cat = 2 and a.typ = '主要客户' )
+        JOIN std_org s ON a.customer_id = s.ref_company_id AND a.customer_orig != s.std_sch AND a.customer_cat = 2)
         SELECT 
             b.org as tar_name,C.*
         FROM C
-        JOIN base_stock b ON b.code = C.secu where b.org is not null and C.customer_orig is not null
+        JOIN base_stock b ON b.code = C.secu
         """
         df = pd.read_sql(query, self.mysql_conn)
         
+        person_data = []
         company_data = []
         for _, row in df.iterrows():
             if not is_valid_data(row['customer_orig'], row['tar_name']):
                 continue
-            company_data.append(row)
+            if row['customer_cat'] == 1:  # 自然人
+                person_data.append(row)
+            elif row['customer_cat'] == 2:  # 机构
+                company_data.append(row)
         
         # 处理公司数据
         if company_data:
             # 插入客户公司顶点
             company_vertices = []
             for row in company_data:
-                
-                customer_name = escape_string_for_nebula(row['customer_orig'])
-                company_name = escape_string_for_nebula(row['tar_name'])
-
-                customer_vid = self.genegerate_vid(customer_name)
-                company_vid = self.genegerate_vid(company_name) 
-
-                company_vertices.append(f"{escape_string_for_nebula(customer_vid)}: ({escape_string_for_nebula(customer_name)}, \"\", \"\")")
-                company_vertices.append(f"{escape_string_for_nebula(company_vid)}: ({escape_string_for_nebula(company_name)}, \"\", \"\")")
+                vid = escape_string_for_nebula(row['customer_orig'])
+                company_name = escape_string_for_nebula(row['customer_orig'])
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
                 for idx, batch in enumerate(vertex_batches):
                     insert_vertex_query = f"""
-                    INSERT VERTEX Company(company_name, company_name_en, company_abbr) VALUES
+                    INSERT VERTEX Company(company_name, std_en, cdtid, csfid, orgid, is_bond_issuer, is_listing) VALUES
                     {', '.join(batch)}
                     """
                     self._execute_batch_insert(insert_vertex_query, f"插入customer公司顶点批次 {idx + 1}")
@@ -777,23 +1019,24 @@ class MySQLToNebulaConverter:
                 edge_values = []
                 for row in batch:
                     customer_vid = escape_string_for_nebula(row['customer_orig'])
-                    company_vid = escape_string_for_nebula(row['tar_name'])
-                   
-                    customer_vid = self.genegerate_vid(customer_name)
-                    company_vid = self.genegerate_vid(company_name)
-
+                    supplier_vid = escape_string_for_nebula(row['tar_name'])
+                    ticker = escape_string_for_nebula(row['ticker'] if pd.notna(row['ticker']) else '')
                     rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
                     rank = self.calculate_rank_from_date(rpt)
-
-                    currency = escape_string_for_nebula(row['unit_sch'] if pd.notna(row['unit_sch']) else '')
-                    customer_amount = escape_string_for_nebula(str(row['amount'])) if pd.notna(row['amount']) else "0.0"
-                    customer_percentage = escape_string_for_nebula(str(row['rate'])+"%" if pd.notna(row['rate']) else "0.0%")
+                    cy_sch = escape_string_for_nebula(row['cy_sch'] if pd.notna(row['cy_sch']) else '')
+                    cy_en = escape_string_for_nebula(row['cy_en'] if pd.notna(row['cy_en']) else '')
+                    unit_sch = escape_string_for_nebula(row['unit_sch'] if pd.notna(row['unit_sch']) else '')
+                    unit_en = escape_string_for_nebula(row['unit_en'] if pd.notna(row['unit_en']) else '')
+                    amount = str(row['amount']) if pd.notna(row['amount']) else "0.0"
+                    rate = str(row['rate']) if pd.notna(row['rate']) else "0.0"
+                    typ = escape_string_for_nebula(row['typ'] if pd.notna(row['typ']) else '')
+                    age = escape_string_for_nebula(row['age'] if pd.notna(row['age']) else '')
                     
-                    edge_values.append(f"{escape_string_for_nebula(customer_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({customer_percentage}, {customer_amount}, {currency}, \"\", True,{rpt})")
+                    edge_values.append(f"{supplier_vid} -> {customer_vid} @{rank}: ({ticker}, {rpt}, {cy_sch}, {cy_en}, {unit_sch}, {unit_en}, {amount}, {rate}, {typ}, {age})")
                 
                 if edge_values:
                     insert_edge_query = f"""
-                    INSERT EDGE Customer(customer_percentage, customer_amount, currency, business_content, is_major_customer,report_period) VALUES
+                    INSERT EDGE CUSTOMER_OF(ticker, rpt, cy_sch, cy_en, unit_sch, unit_en, amount, rate, typ, age) VALUES
                     {', '.join(edge_values)}
                     """
                     self._execute_batch_insert(insert_edge_query, f"插入CUSTOMER_OF关系批次 {idx + 1}")
@@ -803,13 +1046,13 @@ class MySQLToNebulaConverter:
     def migrate_equity_supplier(self):
         """迁移供应链供应商表 - 创建SUPPLIES_TO关系"""
         query = """
-        WITH C AS (SELECT a.secu,a.rpt,  s.std_sch as supplier_orig, a.unit_sch, a.amount, a.rate, a.typ
+        WITH C AS (SELECT a.secu,a.ticker, a.rpt,  s.std_sch as supplier_orig, a.supplier_id, a.supplier_cat,a.cy_sch, a.cy_en, a.unit_sch, a.unit_en, a.amount, a.rate, a.typ, a.age
         FROM equity_supplier a
-        JOIN std_org s ON a.supplier_id = s.ref_company_id AND a.supplier_orig != s.std_sch AND a.supplier_cat = 2 and typ = '供应商')
+        JOIN std_org s ON a.supplier_id = s.ref_company_id AND a.supplier_orig != s.std_sch AND a.supplier_cat = 2)
         SELECT 
             b.org as tar_name,C.*
         FROM C
-        JOIN base_stock b ON b.code = C.secu where b.org is not null and C.supplier_orig is not null
+        JOIN base_stock b ON b.code = C.secu
         """
         
         df = pd.read_sql(query, self.mysql_conn)
@@ -819,28 +1062,25 @@ class MySQLToNebulaConverter:
         for _, row in df.iterrows():
             if not is_valid_data(row['supplier_orig'], row['tar_name']):
                 continue
-            company_data.append(row)
+            if row['supplier_cat'] == 1:  # 自然人
+                person_data.append(row)
+            elif row['supplier_cat'] == 2:  # 机构
+                company_data.append(row)
         
         # 处理公司数据
         if company_data:
             # 插入供应商公司顶点
             company_vertices = []
             for row in company_data:
-                
-                supplier_name = escape_string_for_nebula(row['supplier_orig'])
-                company_name = escape_string_for_nebula(row['tar_name'])
-
-                supplier_vid = self.genegerate_vid(supplier_name)
-                company_vid = self.genegerate_vid(company_name) 
-
-                company_vertices.append(f"{escape_string_for_nebula(supplier_vid)}: ({escape_string_for_nebula(supplier_name)}, \"\", \"\")")
-                company_vertices.append(f"{escape_string_for_nebula(company_vid)}: ({escape_string_for_nebula(company_name)}, \"\", \"\")")
+                vid = escape_string_for_nebula(row['supplier_orig'])
+                company_name = escape_string_for_nebula(row['supplier_orig'])
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
                 for idx, batch in enumerate(vertex_batches):
                     insert_vertex_query = f"""
-                    INSERT VERTEX Company(company_name, company_name_en, company_abbr) VALUES
+                    INSERT VERTEX Company(company_name, std_en, cdtid, csfid, orgid, is_bond_issuer, is_listing) VALUES
                     {', '.join(batch)}
                     """
                     self._execute_batch_insert(insert_vertex_query, f"插入supplier公司顶点批次 {idx + 1}")
@@ -850,26 +1090,25 @@ class MySQLToNebulaConverter:
             for idx, batch in enumerate(edge_batches):
                 edge_values = []
                 for row in batch:
-                    
-                    supplier_name = escape_string_for_nebula(row['supplier_orig'])
-                    company_name = escape_string_for_nebula(row['tar_name'])
-
-                    supplier_vid = self.genegerate_vid(supplier_name)
-                    company_vid = self.genegerate_vid(company_name)
-
+                    supplier_vid = escape_string_for_nebula(row['supplier_orig'])
+                    object_vid = escape_string_for_nebula(row['tar_name'])
+                    ticker = escape_string_for_nebula(row['ticker'] if pd.notna(row['ticker']) else '')
                     rpt = escape_string_for_nebula(str(row['rpt']) if pd.notna(row['rpt']) else '')
                     rank = self.calculate_rank_from_date(rpt)
-
-
-                    currency = escape_string_for_nebula(row['unit_sch'] if pd.notna(row['unit_sch']) else '')
-                    supplier_amount = escape_string_for_nebula(str(row['amount'])) if pd.notna(row['amount']) else escape_string_for_nebula("0.0")
-                    supplier_percentage = escape_string_for_nebula(str(row['rate'])+"%") if pd.notna(row['rate']) else escape_string_for_nebula("0.0%")
+                    cy_sch = escape_string_for_nebula(row['cy_sch'] if pd.notna(row['cy_sch']) else '')
+                    cy_en = escape_string_for_nebula(row['cy_en'] if pd.notna(row['cy_en']) else '')
+                    unit_sch = escape_string_for_nebula(row['unit_sch'] if pd.notna(row['unit_sch']) else '')
+                    unit_en = escape_string_for_nebula(row['unit_en'] if pd.notna(row['unit_en']) else '')
+                    amount = str(row['amount']) if pd.notna(row['amount']) else "0.0"
+                    rate = str(row['rate']) if pd.notna(row['rate']) else "0.0"
+                    typ = escape_string_for_nebula(row['typ'] if pd.notna(row['typ']) else '')
+                    age = escape_string_for_nebula(row['age'] if pd.notna(row['age']) else '')
                     
-                    edge_values.append(f"{escape_string_for_nebula(supplier_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({supplier_percentage}, {supplier_amount}, {currency}, \"\", True,{rpt})")
+                    edge_values.append(f"{supplier_vid} -> {object_vid} @{rank}: ({ticker}, {rpt}, {cy_sch}, {cy_en}, {unit_sch}, {unit_en}, {amount}, {rate}, {typ}, {age})")
                 
                 if edge_values:
                     insert_edge_query = f"""
-                    INSERT EDGE Suppiler(supply_percentage, supply_amount, currency, supply_content, is_major_supplier,report_period) VALUES
+                    INSERT EDGE SUPPLIES_TO(ticker, rpt, cy_sch, cy_en, unit_sch, unit_en, amount, rate, typ, age) VALUES
                     {', '.join(edge_values)}
                     """
                     self._execute_batch_insert(insert_edge_query, f"插入SUPPLIES_TO关系批次 {idx + 1}")
@@ -886,7 +1125,7 @@ class MySQLToNebulaConverter:
         SELECT 
             b.org as tar_name,C.*
         FROM C
-        JOIN base_stock b ON b.code = C.secu  where b.org is not null and C.related_orig is not null
+        JOIN base_stock b ON b.code = C.secu
         """
         
         df_sale = pd.read_sql(sale_query, self.mysql_conn)
@@ -908,7 +1147,7 @@ class MySQLToNebulaConverter:
             for row in company_data:
                 vid = escape_string_for_nebula(row['related_orig'])
                 company_name = escape_string_for_nebula(row['related_orig'])
-                company_vertices.append(f"{escape_string_for_nebula(vid)}: ({escape_string_for_nebula(company_name)}, \"\", \"\", \"\", \"\", \"\", \"\")")
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
@@ -938,7 +1177,7 @@ class MySQLToNebulaConverter:
                     amount_prev = str(row['amount_prev']) if pd.notna(row['amount_prev']) else "0.0"
                     rate_prev = str(row['rate_prev']) if pd.notna(row['rate_prev']) else "0.0"
                     
-                    edge_values.append(f"{escape_string_for_nebula(seller_vid)} -> {escape_string_for_nebula(buyer_vid)} @{rank}: ({ticker}, {rpt}, {cy_orig}, {cy_code}, {cy_unit}, {content}, {amount_curr}, {rate_curr}, {amount_prev}, {rate_prev})")
+                    edge_values.append(f"{seller_vid} -> {buyer_vid} @{rank}: ({ticker}, {rpt}, {cy_orig}, {cy_code}, {cy_unit}, {content}, {amount_curr}, {rate_curr}, {amount_prev}, {rate_prev})")
                 
                 if edge_values:
                     insert_edge_query = f"""
@@ -981,7 +1220,7 @@ class MySQLToNebulaConverter:
             for row in company_data:
                 vid = escape_string_for_nebula(row['related_orig'])
                 company_name = escape_string_for_nebula(row['related_orig'])
-                company_vertices.append(f"{escape_string_for_nebula(vid)}: ({escape_string_for_nebula(company_name)}, \"\", \"\", \"\", \"\", \"\", \"\")")
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
@@ -1013,7 +1252,7 @@ class MySQLToNebulaConverter:
                     amount_limit = str(row['amount_limit']) if pd.notna(row['amount_limit']) else "0.0"
                     exceed = escape_string_for_nebula(row['exceed'] if pd.notna(row['exceed']) else '')
                     
-                    edge_values.append(f"{escape_string_for_nebula(seller_vid)} -> {escape_string_for_nebula(buyer_vid)} @{rank}: ({ticker}, {rpt}, {cy_orig}, {cy_code}, {cy_unit}, {content}, {amount_curr}, {rate_curr}, {amount_prev}, {rate_prev}, {amount_limit}, {exceed})")
+                    edge_values.append(f"{seller_vid} -> {buyer_vid} @{rank}: ({ticker}, {rpt}, {cy_orig}, {cy_code}, {cy_unit}, {content}, {amount_curr}, {rate_curr}, {amount_prev}, {rate_prev}, {amount_limit}, {exceed})")
                 
                 if edge_values:
                     insert_edge_query = f"""
@@ -1055,7 +1294,7 @@ class MySQLToNebulaConverter:
             for row in company_data:
                 vid = escape_string_for_nebula(row['supplier_orig'])
                 company_name = escape_string_for_nebula(row['supplier_orig'])
-                company_vertices.append(f"{escape_string_for_nebula(vid)}: ({escape_string_for_nebula(company_name)}, \"\", \"\", \"\", \"\", \"\", \"\")")
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
@@ -1082,7 +1321,7 @@ class MySQLToNebulaConverter:
                     amount = str(row['amount']) if pd.notna(row['amount']) else "0.0"
                     rate = str(row['rate']) if pd.notna(row['rate']) else "0.0"
                     
-                    edge_values.append(f"{escape_string_for_nebula(payer_vid)} -> {escape_string_for_nebula(payee_vid)} @{rank}: ({ticker}, {rpt}, {cy_orig}, {cy_code}, {cy_unit}, {amount}, {rate})")
+                    edge_values.append(f"{payer_vid} -> {payee_vid} @{rank}: ({ticker}, {rpt}, {cy_orig}, {cy_code}, {cy_unit}, {amount}, {rate})")
                 
                 if edge_values:
                     insert_edge_query = f"""
@@ -1124,7 +1363,7 @@ class MySQLToNebulaConverter:
             for row in company_data:
                 vid = escape_string_for_nebula(row['related_orig'])
                 company_name = escape_string_for_nebula(row['related_orig'])
-                company_vertices.append(f"{escape_string_for_nebula(vid)}: ({escape_string_for_nebula(company_name) }, \"\", \"\", \"\", \"\", \"\", \"\")")
+                company_vertices.append(f"{vid}: ({company_name}, \"\", \"\", \"\", \"\", \"\", \"\")")
             
             if company_vertices:
                 vertex_batches = [company_vertices[i:i + self.batch_size] for i in range(0, len(company_vertices), self.batch_size)]
@@ -1159,7 +1398,7 @@ class MySQLToNebulaConverter:
                     debt_curr = str(row['debt_curr']) if pd.notna(row['debt_curr']) else "0.0"
                     debt_prev = str(row['debt_prev']) if pd.notna(row['debt_prev']) else "0.0"
                     
-                    edge_values.append(f"{escape_string_for_nebula(debtor_vid)} -> {escape_string_for_nebula(creditor_vid)} @{rank}: ({ticker}, {rpt}, {items_orig}, {items_sch}, {items_en}, {items_code}, {cy_orig}, {cy_code}, {cy_unit}, {amount_curr}, {rate_curr}, {amount_prev}, {rate_prev}, {debt_curr}, {debt_prev})")
+                    edge_values.append(f"{debtor_vid} -> {creditor_vid} @{rank}: ({ticker}, {rpt}, {items_orig}, {items_sch}, {items_en}, {items_code}, {cy_orig}, {cy_code}, {cy_unit}, {amount_curr}, {rate_curr}, {amount_prev}, {rate_prev}, {debt_curr}, {debt_prev})")
                 
                 if edge_values:
                     insert_edge_query = f"""
@@ -1178,8 +1417,8 @@ class MySQLToNebulaConverter:
             # 连接数据库
             self.connect_databases()
             
-            # 使用graph space
-            self.use_graph_space()
+            # 创建space和schema
+            self.create_space_and_schema()
             
             # 清空数据
             # self.clear_space()
@@ -1188,11 +1427,10 @@ class MySQLToNebulaConverter:
             self.migrate_std_org()
             self.migrate_new_base_people()
             self.migrate_base_stock()
-
-            # self.migrate_fin_report_date()
+            self.migrate_fin_report_date()
             
             # 创建基础关系
-            # self.create_stock_company_relationships()
+            self.create_stock_company_relationships()
             # self.create_report_relationships()
             
             # 迁移关系数据
@@ -1200,12 +1438,10 @@ class MySQLToNebulaConverter:
             self.migrate_equity_subsidiary_base()
             self.migrate_equity_customer()
             self.migrate_equity_supplier()
-            self.migrate_assc_jc_base()
+            self.migrate_related_transactions()
 
-
-            # self.migrate_related_transactions()
-            # self.migrate_fin_other_payment()
-            # self.migrate_related_ar()
+            self.migrate_fin_other_payment()
+            self.migrate_related_ar()
             
             logger.info("数据迁移完成!")
             
@@ -1235,7 +1471,7 @@ if __name__ == "__main__":
     }
     
     # 创建转换器
-    converter = MySQLToNebulaConverter(mysql_config, nebula_config,space_name = "RTSupplyChains")
+    converter = MySQLToNebulaConverter(mysql_config, nebula_config)
     
     # 执行迁移
     converter.run_full_migration() 

@@ -81,7 +81,7 @@ class Shareholder(BaseModel):
     period_end_holdings: Optional[str] = Field(None, description="期末持股数量（保持原文格式和单位）")
     share_type: Optional[str] = Field(None, description="股本类型（限售、非限售）")
     share_percentage: Optional[str] = Field(None, description="股份比例（保持原文格式，如'15.2%'或'15.2'）")
-
+    vote_percentage: Optional[str] = Field(None, description="投票权比例（保持原文格式，如'15.2%'或'15.2'）")
 # 子公司信息模型 - 第50行  
 class Subsidiary(BaseModel):
     """子公司信息模型  
@@ -98,6 +98,7 @@ class Subsidiary(BaseModel):
     total_assets: Optional[str] = Field(None, description="总资产（保持原文格式和单位）")
     registered_capital: Optional[str] = Field(None, description="注册资本（保持原文格式和单位）如23,959.28万元")
     investment_method: Optional[str] = Field(None, description="资本投资方式（股权转让、收购兼并、资产剥离、资产交易、资产置换、持有证券、设立）")
+    vote_percentage: Optional[str] = Field(None, description="投票权比例（保持原文格式，如'15.2%'或'15.2'）")
 
 # 关联公司信息模型 - 第59行
 class RelatedParty(BaseModel):
@@ -249,12 +250,16 @@ def gpt_chat(message):
 def qwen_chat(message):  
     client = OpenAI(
         api_key="sk-1234",
-        # base_url="http://10.100.0.2:9001/v1",
-        base_url="http://10.100.0.1:4000",
+        base_url="http://10.100.0.205:4000",
+
+        # base_url="http://127.0.0.1:30000/v1",
+        # api_key="EMPTY",
+        
     )
    
     completion = client.chat.completions.parse(
-        model="Qwen3-30B-A3B-Thinking-2507",#Qwen3-30B-A3B-Instruct-2507    
+        model="Qwen3-30B-A3B-Thinking-2507",#Qwen3-30B-A3B-Instruct-2507  
+        # model= "Qwen3-Next-80B-A3B-Thinking",
         messages=[
             # {"role": "system", "content": "严格遵循：仅从提供的文档中抽取信息；禁止编造、禁止任何计算或单位换算；缺失即为null；所有数值保持原文格式（包含小数位数、千分位和单位）。输出必须符合指定schema。"},
             {"role":"user","content":message}
@@ -269,6 +274,6 @@ def qwen_chat(message):
     
     return completion.choices[0].message.content
 
-print(get_models())
+# print(get_models())
 # print(qwen_chat("讲个笑话"))
 

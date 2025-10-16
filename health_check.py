@@ -101,6 +101,17 @@ server_list = [
    
 ]
 
+maps = {"172.16.0.11":"1号机",
+    "172.16.0.12":"2号机",
+    "172.16.0.13":"3号机",
+    "172.16.0.14":"4号机",
+    "172.16.0.15":"5号机",
+    "172.16.0.16":"6号机",
+    "172.16.0.17":"7号机",
+    "172.16.0.19":"8号机",
+}
+
+
 def main():
     # 使用线程池进行并发执行
     max_workers = min(len(server_list), 12)  # 最多使用10个线程，避免资源消耗过大
@@ -122,7 +133,7 @@ def main():
             except Exception as exc:
                 logger.error(f"Server {server['ip']}:{server['port']} generated an exception: {exc}")
     
-    logger.info(f"********************************************************{LOCAL_IP} server health checks completed***********************************************\n")
+    logger.info(f"********************************************************{maps[LOCAL_IP]} server health checks completed***********************************************\n")
 
 if __name__ == "__main__":
     main()

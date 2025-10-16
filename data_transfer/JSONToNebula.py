@@ -309,7 +309,7 @@ class JSONToNebulaInserter:
         return vid
 
     def transfer_data(self,data:Dict):
-        clean = {k: (v if v is not None else '') for k, v in data.items()}
+        clean = {k: (v if v is not None and v != "null" and v != ":null" else '') for k, v in data.items()}
         return clean
     
     def insert_company_vertex(self, company_data: Dict):
@@ -439,8 +439,8 @@ class JSONToNebulaInserter:
             
             # 插入股权股本信息边 - 使用VID
             query = f"""
-            INSERT EDGE Base_Stock_Info(total_share_capital, circulating_share_capital, risk_warning_time, cancel_risk_warning_time, risk_warning_status, stock_list_status) VALUES
-            {escape_string_for_nebula(stock_vid)} -> {escape_string_for_nebula(stock_vid)} @{rank}: ({escape_string_for_nebula(total_share_capital)}, {escape_string_for_nebula(circulating_share_capital)}, {escape_string_for_nebula(risk_warning_time)}, {escape_string_for_nebula(cancel_risk_warning_time)}, {escape_string_for_nebula(risk_warning_status)}, {escape_string_for_nebula(stock_list_status)})
+            INSERT EDGE Base_Stock_Info(total_share_capital, circulating_share_capital, risk_warning_time, cancel_risk_warning_time, risk_warning_status, stock_list_status,report_date) VALUES
+            {escape_string_for_nebula(stock_vid)} -> {escape_string_for_nebula(stock_vid)} @{rank}: ({escape_string_for_nebula(total_share_capital)}, {escape_string_for_nebula(circulating_share_capital)}, {escape_string_for_nebula(risk_warning_time)}, {escape_string_for_nebula(cancel_risk_warning_time)}, {escape_string_for_nebula(risk_warning_status)}, {escape_string_for_nebula(stock_list_status)},{escape_string_for_nebula(report_date)})
             """
             
             success, _ = self.execute_query(query, {}, f"插入股权股本变更边: {stock_code}")
@@ -476,8 +476,8 @@ class JSONToNebulaInserter:
                     continue
                 
                 query = f"""
-                INSERT EDGE Base_Stock_Info(total_share_capital, circulating_share_capital, risk_warning_time, cancel_risk_warning_time, risk_warning_status, stock_list_status) VALUES
-                {escape_string_for_nebula(stock_vid)} -> {escape_string_for_nebula(stock_vid)} @{rank}: ({escape_string_for_nebula(current_total_capital)}, {escape_string_for_nebula(current_circulating_capital)}, {escape_string_for_nebula(risk_warning_time)}, {escape_string_for_nebula(cancel_risk_warning_time)}, {escape_string_for_nebula(risk_warning_status)}, {escape_string_for_nebula(stock_list_status)})
+                INSERT EDGE Base_Stock_Info(total_share_capital, circulating_share_capital, risk_warning_time, cancel_risk_warning_time, risk_warning_status, stock_list_status,report_date) VALUES
+                {escape_string_for_nebula(stock_vid)} -> {escape_string_for_nebula(stock_vid)} @{rank}: ({escape_string_for_nebula(current_total_capital)}, {escape_string_for_nebula(current_circulating_capital)}, {escape_string_for_nebula(risk_warning_time)}, {escape_string_for_nebula(cancel_risk_warning_time)}, {escape_string_for_nebula(risk_warning_status)}, {escape_string_for_nebula(stock_list_status)},{escape_string_for_nebula(report_date)})
                 """
                 
                 success, _ = self.execute_query(query, {}, f"插入股权股本变更边: {code}")
@@ -515,8 +515,8 @@ class JSONToNebulaInserter:
         
         # 插入公司基础信息关系边 - 使用VID
         query = f"""
-        INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital) VALUES
-        {escape_string_for_nebula(company_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(registration_place)},{escape_string_for_nebula(business_place)}, {escape_string_for_nebula(industry)}, {escape_string_for_nebula(business_scope)}, {escape_string_for_nebula(company_qualification)}, {escape_string_for_nebula(is_bond_issuer)}, {escape_string_for_nebula(industry_level)}, {escape_string_for_nebula(total_assets)}, {escape_string_for_nebula(registered_capital)})
+        INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital,report_date) VALUES
+        {escape_string_for_nebula(company_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(registration_place)},{escape_string_for_nebula(business_place)}, {escape_string_for_nebula(industry)}, {escape_string_for_nebula(business_scope)}, {escape_string_for_nebula(company_qualification)}, {escape_string_for_nebula(is_bond_issuer)}, {escape_string_for_nebula(industry_level)}, {escape_string_for_nebula(total_assets)}, {escape_string_for_nebula(registered_capital)},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入公司基础信息关系: {company_name}")
@@ -580,8 +580,8 @@ class JSONToNebulaInserter:
 
         # 插入人员职位状态边 - 使用VID
         query = f"""
-        INSERT EDGE Position_Info(position, is_active, status_change_time, compensation) VALUES
-        {escape_string_for_nebula(person_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(position)}, {is_active}, {escape_string_for_nebula(report_date)}, {escape_string_for_nebula(compensation)})
+        INSERT EDGE Position_Info(position, is_active, status_change_time, compensation,report_date) VALUES
+        {escape_string_for_nebula(person_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(position)}, {is_active}, {escape_string_for_nebula(report_date)}, {escape_string_for_nebula(compensation)},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入人员职位状态边: {person_name} -> {company_name}")
@@ -632,6 +632,7 @@ class JSONToNebulaInserter:
         share_percentage = shareholder_data.get('share_percentage', '')
         currency = shareholder_data.get('currency', '')
         is_major_shareholder = shareholder_data.get('is_major_shareholder') or False
+        vote_percentage = shareholder_data.get('vote_percentage', '')
         
         if not shareholder_name:
             return False
@@ -647,7 +648,8 @@ class JSONToNebulaInserter:
                 'Shareholder',
                 {"shareholder_type":shareholder_type,"shareholding_percentage":shareholding_percentage,"currency":currency,
                     "is_major_shareholder":is_major_shareholder,"report_period_change_amount":report_period_change_amount,
-                    "period_end_holdings":period_end_holdings,"share_type":share_type,"share_percentage":share_percentage}
+                    "period_end_holdings":period_end_holdings,"share_type":share_type,"share_percentage":share_percentage,
+                    "vote_percentage":vote_percentage}
             ):
                 logger.info(f"控股关系边已存在: {shareholder_name} -> {company_name}")
                 self.stats['edges_skipped'] += 1
@@ -662,7 +664,8 @@ class JSONToNebulaInserter:
                 'Shareholder',
                 {"shareholder_type":shareholder_type,"shareholding_percentage":shareholding_percentage,"currency":currency,
                     "is_major_shareholder":is_major_shareholder,"report_period_change_amount":report_period_change_amount,
-                    "period_end_holdings":period_end_holdings,"share_type":share_type,"share_percentage":share_percentage}
+                    "period_end_holdings":period_end_holdings,"share_type":share_type,"share_percentage":share_percentage,
+                    "vote_percentage":vote_percentage}
             ):
                 logger.info(f"控股关系边已存在: {shareholder_name} -> {company_name}")
                 self.stats['edges_skipped'] += 1
@@ -674,8 +677,8 @@ class JSONToNebulaInserter:
         
         # 插入控股关系边 - 使用VID
         query = f"""
-        INSERT EDGE Shareholder(shareholder_type, shareholding_percentage, currency, is_major_shareholder, report_period_change_amount, period_end_holdings, share_type, share_percentage) VALUES
-        {escape_string_for_nebula(shareholder_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(shareholder_type)}, {escape_string_for_nebula(shareholding_percentage)}, {escape_string_for_nebula(currency)}, {is_major_shareholder}, {escape_string_for_nebula(report_period_change_amount)}, {escape_string_for_nebula(period_end_holdings)}, {escape_string_for_nebula(share_type)}, {escape_string_for_nebula(share_percentage)})
+        INSERT EDGE Shareholder(shareholder_type, shareholding_percentage, currency, is_major_shareholder, report_period_change_amount, period_end_holdings, share_type, share_percentage, vote_percentage,report_date) VALUES
+        {escape_string_for_nebula(shareholder_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(shareholder_type)}, {escape_string_for_nebula(shareholding_percentage)}, {escape_string_for_nebula(currency)}, {is_major_shareholder}, {escape_string_for_nebula(report_period_change_amount)}, {escape_string_for_nebula(period_end_holdings)}, {escape_string_for_nebula(share_type)}, {escape_string_for_nebula(share_percentage)}, {escape_string_for_nebula(vote_percentage)},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入控股关系: {shareholder_name} -> {company_name}")
@@ -706,6 +709,7 @@ class JSONToNebulaInserter:
         business_scope = subsidiary_data.get('business_scope', '')
         total_assets = subsidiary_data.get('total_assets', '')
         registered_capital = subsidiary_data.get('registered_capital', '')
+        vote_percentage = subsidiary_data.get('vote_percentage', '')
         
         
         self.insert_company_vertex({'company_name': subsidiary_name})
@@ -717,7 +721,7 @@ class JSONToNebulaInserter:
             'Company',
             {"company_name":parent_company},
             "Subsidiary",
-            {"is_wholly_owned":is_wholly_owned, "subsidiary_type":subsidiary_type, 
+            {"is_wholly_owned":is_wholly_owned, "subsidiary_type":subsidiary_type, "vote_percentage":vote_percentage,
                 "subsidiary_relationship":subsidiary_relationship, "ownership_percentage":ownership_percentage,
                 "is_consolidated":is_consolidated, "investment_amount":investment_amount, "investment_method":investment_method}
         )
@@ -727,7 +731,7 @@ class JSONToNebulaInserter:
             'Company',
             {"company_name":subsidiary_name},
             "Parent_Of",
-            {"is_wholly_owned":is_wholly_owned, "subsidiary_type":subsidiary_type, 
+            {"is_wholly_owned":is_wholly_owned, "subsidiary_type":subsidiary_type, "vote_percentage":vote_percentage,
                 "subsidiary_relationship":subsidiary_relationship, "ownership_percentage":ownership_percentage,
                 "is_consolidated":is_consolidated, "investment_amount":investment_amount, "investment_method":investment_method}
         )
@@ -745,8 +749,8 @@ class JSONToNebulaInserter:
         
         # 插入子公司关系边 - 使用VID
         subsidiary_query = f"""
-        INSERT EDGE Subsidiary(is_wholly_owned, subsidiary_type, subsidiary_relationship, ownership_percentage, is_consolidated, investment_amount, investment_method) VALUES
-        {escape_string_for_nebula(subsidiary_vid)} -> {escape_string_for_nebula(parent_vid)} @{rank}: ({is_wholly_owned}, {escape_string_for_nebula(subsidiary_type)}, {escape_string_for_nebula(subsidiary_relationship)}, {escape_string_for_nebula(ownership_percentage)}, {is_consolidated}, {escape_string_for_nebula(investment_amount)}, {escape_string_for_nebula(investment_method)})
+        INSERT EDGE Subsidiary(is_wholly_owned, subsidiary_type, subsidiary_relationship, ownership_percentage, is_consolidated, investment_amount, investment_method, vote_percentage,report_date) VALUES
+        {escape_string_for_nebula(subsidiary_vid)} -> {escape_string_for_nebula(parent_vid)} @{rank}: ({is_wholly_owned}, {escape_string_for_nebula(subsidiary_type)}, {escape_string_for_nebula(subsidiary_relationship)}, {escape_string_for_nebula(ownership_percentage)}, {is_consolidated}, {escape_string_for_nebula(investment_amount)}, {escape_string_for_nebula(investment_method)}, {escape_string_for_nebula(vote_percentage)},{escape_string_for_nebula(report_date)}) 
         """
         
         success, _ = self.execute_query(subsidiary_query, {}, f"插入子公司关系: {subsidiary_name} -> {parent_company}")
@@ -755,8 +759,8 @@ class JSONToNebulaInserter:
 
         # 插入母公司关系边 - 使用VID
         parent_query = f"""
-        INSERT EDGE Parent_Of(is_wholly_owned, subsidiary_type, subsidiary_relationship, ownership_percentage, is_consolidated, investment_amount, investment_method) VALUES
-        {escape_string_for_nebula(parent_vid)} -> {escape_string_for_nebula(subsidiary_vid)} @{rank}: ({is_wholly_owned }, {escape_string_for_nebula(subsidiary_type)}, {escape_string_for_nebula(subsidiary_relationship)}, {escape_string_for_nebula(ownership_percentage)}, {is_consolidated}, {escape_string_for_nebula(investment_amount)}, {escape_string_for_nebula(investment_method)})
+        INSERT EDGE Parent_Of(is_wholly_owned, subsidiary_type, subsidiary_relationship, ownership_percentage, is_consolidated, investment_amount, investment_method, vote_percentage,report_date) VALUES
+        {escape_string_for_nebula(parent_vid)} -> {escape_string_for_nebula(subsidiary_vid)} @{rank}: ({is_wholly_owned }, {escape_string_for_nebula(subsidiary_type)}, {escape_string_for_nebula(subsidiary_relationship)}, {escape_string_for_nebula(ownership_percentage)}, {is_consolidated}, {escape_string_for_nebula(investment_amount)}, {escape_string_for_nebula(investment_method)}, {escape_string_for_nebula(vote_percentage)},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(parent_query, {}, f"插入母公司关系: {parent_company} -> {subsidiary_name}")
@@ -765,8 +769,8 @@ class JSONToNebulaInserter:
 
         # 查询Base_Compang_Info最新边,upsert total_assets, registered_capital!!!!!!!
         query = f"""
-        INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital) VALUES
-        {escape_string_for_nebula(subsidiary_vid)} -> {escape_string_for_nebula(subsidiary_vid)} @{rank}: ({escape_string_for_nebula(registration_place)}, "", "", {escape_string_for_nebula(business_scope)}, "", "", "", {escape_string_for_nebula(total_assets)}, {escape_string_for_nebula(registered_capital)})
+        INSERT EDGE Base_Company_Info(registration_place, business_place, industry, business_scope, company_qualification, is_bond_issuer, industry_level, current_total_assets, registered_capital,report_date) VALUES
+        {escape_string_for_nebula(subsidiary_vid)} -> {escape_string_for_nebula(subsidiary_vid)} @{rank}: ({escape_string_for_nebula(registration_place)}, "", "", {escape_string_for_nebula(business_scope)}, "", "", "", {escape_string_for_nebula(total_assets)}, {escape_string_for_nebula(registered_capital)},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入公司基础信息关系: {subsidiary_name}")
@@ -798,8 +802,8 @@ class JSONToNebulaInserter:
             
             # 插入关联公司关系边 - 使用VID
             query = f"""
-            INSERT EDGE Related_Company(relationship, relationship_percentage, business_scope) VALUES
-            {escape_string_for_nebula(related_person_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(relationship)}, {escape_string_for_nebula(relationship_percentage)}, {escape_string_for_nebula(business_scope)})
+            INSERT EDGE Related_Company(relationship, relationship_percentage, business_scope,report_date) VALUES
+            {escape_string_for_nebula(related_person_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(relationship)}, {escape_string_for_nebula(relationship_percentage)}, {escape_string_for_nebula(business_scope)},{escape_string_for_nebula(report_date)})
             """
             success, _ = self.execute_query(query, {}, f"插入关联公司关系: {company_name} -> {related_company_name}")
             if success:
@@ -825,8 +829,8 @@ class JSONToNebulaInserter:
             
             # 插入关联公司关系边 - 使用VID
             query = f"""
-            INSERT EDGE Related_Company(relationship, relationship_percentage, business_scope) VALUES
-            {escape_string_for_nebula(related_company_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(relationship)}, {escape_string_for_nebula(relationship_percentage)}, {escape_string_for_nebula(business_scope)})
+            INSERT EDGE Related_Company(relationship, relationship_percentage, business_scope,report_date) VALUES
+            {escape_string_for_nebula(related_company_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(relationship)}, {escape_string_for_nebula(relationship_percentage)}, {escape_string_for_nebula(business_scope)},{escape_string_for_nebula(report_date)}) 
             """
             
             success, _ = self.execute_query(query, {}, f"插入关联公司关系: {company_name} -> {related_company_name}")
@@ -871,8 +875,8 @@ class JSONToNebulaInserter:
         company_vid = self.genegerate_vid(company_name)
         
         # 插入供应商关系边 - 使用VID
-        query = f"""INSERT EDGE Suppiler(supply_percentage, supply_amount, currency, supply_content, is_major_supplier) VALUES
-        {escape_string_for_nebula(supplier_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(supply_percentage)}, {escape_string_for_nebula(supply_amount)}, {escape_string_for_nebula(currency)}, {escape_string_for_nebula(supply_content)}, {is_major_supplier})
+        query = f"""INSERT EDGE Suppiler(supply_percentage, supply_amount, currency, supply_content, is_major_supplier,report_period) VALUES
+        {escape_string_for_nebula(supplier_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(supply_percentage)}, {escape_string_for_nebula(supply_amount)}, {escape_string_for_nebula(currency)}, {escape_string_for_nebula(supply_content)}, {is_major_supplier},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入供应关系: {supplier_name} -> {company_name}")
@@ -916,8 +920,8 @@ class JSONToNebulaInserter:
     
         # 插入客户关系边 - 使用VID
         query = f"""
-        INSERT EDGE Customer(customer_percentage, customer_amount, currency, business_content, is_major_customer) VALUES
-        {escape_string_for_nebula(customer_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(customer_percentage)}, {escape_string_for_nebula(customer_amount)}, {escape_string_for_nebula(currency)}, {escape_string_for_nebula(business_content)}, {is_major_customer})
+        INSERT EDGE Customer(customer_percentage, customer_amount, currency, business_content, is_major_customer,report_period) VALUES
+        {escape_string_for_nebula(customer_vid)} -> {escape_string_for_nebula(company_vid)} @{rank}: ({escape_string_for_nebula(customer_percentage)}, {escape_string_for_nebula(customer_amount)}, {escape_string_for_nebula(currency)}, {escape_string_for_nebula(business_content)}, {is_major_customer},{escape_string_for_nebula(report_date)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入客户关系: {customer_name} -> {company_name}")
@@ -968,7 +972,7 @@ class JSONToNebulaInserter:
         # 插入主营业务构成边 - 使用VID
         query = f"""
         INSERT EDGE Main_Business_Composition(business_country, revenue, revenue_percentage, gross_profit_margin, cost, gross_profit, currency, report_last_date, business_description) VALUES
-        {escape_string_for_nebula(company_vid)} -> {escape_string_for_nebula(product_vid)} @{rank}: ({escape_string_for_nebula(business_country)}, {escape_string_for_nebula(revenue)}, {escape_string_for_nebula(revenue_percentage)}, {escape_string_for_nebula(gross_profit_margin)}, {escape_string_for_nebula(cost)}, {escape_string_for_nebula(gross_profit)}, {escape_string_for_nebula(currency)}, {escape_string_for_nebula(report_last_date)}, {escape_string_for_nebula(business_description)})
+        {escape_string_for_nebula(company_vid)} -> {escape_string_for_nebula(product_vid)} @{rank}: ({escape_string_for_nebula(business_country)}, {escape_string_for_nebula(revenue)}, {escape_string_for_nebula(revenue_percentage)}, {escape_string_for_nebula(gross_profit_margin)}, {escape_string_for_nebula(cost)}, {escape_string_for_nebula(gross_profit)}, {escape_string_for_nebula(currency)}, {escape_string_for_nebula(report_date)}, {escape_string_for_nebula(business_description)})
         """
         
         success, _ = self.execute_query(query, {}, f"插入主营业务构成关系: {company_name} -> {product_name}")
@@ -989,6 +993,8 @@ class JSONToNebulaInserter:
         if 'company_info' in data and data['company_info']:
             company_info = data['company_info']
             company_name = company_info.get('company_name', '')
+            if company_name == "null":
+                company_name = ""
             
             if company_name:
                 self.insert_company_vertex(company_info)
@@ -1088,7 +1094,7 @@ class JSONToNebulaInserter:
 #     #     json_data = json.load(f)
 #     # inserter.run_insertion(json_data) 
 
-#     root = Path('/data/true_nas/zfs_share1/yy/code/supplierchainsgraph/responses')  # 把这里换成你要遍历的目录
+#     root = Path('/data/true_nas/zfs_share1/yy/data/wind_anno_qwen_json')  # 把这里换成你要遍历的目录
 #     all_files = [p for p in root.rglob('*') if p.is_file()]
 #     # 读取JSON文件
 #     for file in all_files:
