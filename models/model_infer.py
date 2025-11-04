@@ -197,7 +197,7 @@ class CompanyExtractionResult(BaseModel):
 def get_models():
     client = OpenAI(
         api_key="Bearer sk-9AiXl4JTI3FCPUIAkEh0Yw", # 在这里将 MOONSHOT_API_KEY 替换为你从 Kimi 开放平台申请的 API Key
-        base_url="http://10.102.0.61/v1",
+        base_url="http://llmserver.rt-private-cloud.com/v1",
     )
     models = client.models.list()
     return models
@@ -274,6 +274,6 @@ def qwen_chat(message):
     
     return completion.choices[0].message.content
 
-# print(get_models())
+print(get_models())
 # print(qwen_chat("讲个笑话"))
 

@@ -16,6 +16,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import logging
+import time
 
 # 配置日志
 def setup_logger():
@@ -44,7 +45,7 @@ global report_labels
 report_labels = pd.read_excel("data/report.xlsx", engine='openpyxl').fillna('').values.tolist()
 report_labels = [item[0]+' '+item[1] for item in report_labels]
 us3_client = US3Client()
-inserter = JSONToNebulaInserter(nebula_config)
+inserter = JSONToNebulaInserter(nebula_config,space_name="YXSupplyChains")
 
 def value_check(parsed_data):
     for key,value in parsed_data.items():
@@ -94,9 +95,9 @@ def process_single_file(file_path):
         return {"success": True, "file": file_path, "message": "处理成功"}
     
     except Exception as e:
-        error_msg = f"处理文件 {file_path} 时出错: {str(e)}"
+        error_msg = f"处理文件 {file_path} 时出错: {e.message}"
         logger.error(error_msg)
-        return {"success": False, "file": file_path, "error": str(e)}
+        return {"success": False, "file": file_path, "error": e.message}
 
     
 if __name__ == "__main__":
@@ -104,7 +105,9 @@ if __name__ == "__main__":
     while True:
         data = fetch_one()
         if not data:
-            break
+            logger.info("队列为空，等待新任务...")
+            time.sleep(5)  # 等待5秒后再检查
+            continue
         use_path = data["use_path"]
         us3_file_name = use_path.split("/")[-1]
         tmp_path = os.path.join(QWEN_INFERENCE_MD_PATH, us3_file_name)

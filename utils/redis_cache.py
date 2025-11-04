@@ -34,14 +34,18 @@ def fetch_one() -> Dict[str, Any]:
     2. 把该 uid 推入 processing 列表（左侧即可）；
     3. 根据 uid 读取 Hash 并返回字典。
     如果pending为空，返回空字典。
+    如果Hash数据不存在，从processing移除uid，重新获取。
     """
-    uid = redis_connection.brpoplpush(REDIS_PENDING_KEY, REDIS_PROCESSING_KEY, timeout=2)
-    if uid is None:
-        return {}
-    data = redis_connection.hgetall(REDIS_DATA_KEY_PREFIX + uid)
-    # Deserialize JSON strings back to objects
-    data["uid"] = uid          # 带上 uid，方便后续删除
-    return data
+    while True:
+        uid = redis_connection.brpoplpush(REDIS_MISS_DATA_KEY, REDIS_PROCESSING_KEY, timeout=2) #REDIS_MISS_DATA_KEY
+        if uid is None:
+            return {}
+        data = redis_connection.hgetall(REDIS_DATA_KEY_PREFIX + uid)
+        if data:  # Hash数据存在
+            data["uid"] = uid          # 带上 uid，方便后续删除
+            return data
+        else:  # Hash数据不存在（已被删除），从processing移除，继续尝试下一个
+            redis_connection.lrem(REDIS_PROCESSING_KEY, 1, uid)
 
 def ack(uid: str) -> None:
     """把 uid 从 processing 列表移除，并删除对应 Hash"""
@@ -57,19 +61,21 @@ def rollback_unprocessed() -> None:
     保证重启后不会丢数据。
     建议脚本启动时调用一次。
     """
+    count = 0
     while True:
         uid = redis_connection.rpop(REDIS_PROCESSING_KEY)
         if uid is None:
             break
-        redis_connection.lpush(REDIS_PENDING_KEY, uid)
-    print("[rollback] 已把未处理完的 uid 回滚到 pending")
+        redis_connection.lpush(REDIS_MISS_DATA_KEY, uid)# REDIS_MISS_DATA_KEY     REDIS_PENDING_KEY
+        count += 1
+    print(f"[rollback] 已把 {count} 个未处理完的 uid 回滚到 pending")
 
 def failed_rollback(uid):
     """
     失败回滚：处理失败，把 uid 从 processing 移回 pending，稍后重试
     """
     redis_connection.lrem(REDIS_PROCESSING_KEY, 1, uid)
-    redis_connection.lpush(REDIS_PENDING_KEY, uid)
+    redis_connection.lpush(REDIS_MISS_DATA_KEY, uid)
 
 # 公告PDF解析有问题，此部分先放到REDIS_MISS_DATA_KEY队列中去，待正确解析后，再从REDIS_MISS_DATA_KEY队列中移回REDIS_PENDING_KEY队列中
 # count = 0
