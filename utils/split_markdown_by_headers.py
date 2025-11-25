@@ -87,10 +87,10 @@ def split_by_headers(content: str) -> List[Dict[str, str]]:
 
 # def main():
 #     # 输入文件路径
-#     input_file = "/data/true_nas/zfs_share1/yy/code/supplierchainsgraph/wind_anno/年度报告_windanno_bc68d567-eab0-5fcf-8eb0-10d184f337dc.md"
+#     input_file = "/data/share2/yy/workspace/code/supplierchainsgraph/wind_anno/年度报告_windanno_bc68d567-eab0-5fcf-8eb0-10d184f337dc.md"
     
 #     # 输出目录
-#     output_dir = "/data/true_nas/zfs_share1/yy/code/supplierchainsgraph/split_sections"
+#     output_dir = "/data/share2/yy/workspace/code/supplierchainsgraph/split_sections"
 #     base_name = "宁德时代年度报告"
     
 #     print(f"正在读取文件: {input_file}")

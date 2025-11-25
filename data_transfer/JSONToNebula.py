@@ -20,7 +20,7 @@ def setup_logger():
     """设置日志记录"""
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
-    log_file_path =  '/data/true_nas/zfs_share1/yy/logs/JSONToNebula_batch.log'
+    log_file_path =  '/data/share2/yy/workspace/logs/JSONToNebula_batch.log'
     
     # 创建日志目录
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
@@ -1413,11 +1413,11 @@ class JSONToNebulaInserter:
 #     #     json_data = json.load(f)
 #     # inserter.run_insertion(json_data) 
 
-#     root = Path('/data/true_nas/zfs_share1/yy/data/wind_anno_qwen_json')  # 把这里换成你要遍历的目录
+#     root = Path('/data/share2/yy/workspace/data/wind_anno_qwen_json')  # 把这里换成你要遍历的目录
 #     all_files = [p for p in root.rglob('*') if p.is_file()]
 
 #     # 已处理文件记录
-#     processed_log_path = Path('/data/true_nas/zfs_share1/yy/logs/processed_filenames.txt')
+#     processed_log_path = Path('/data/share2/yy/workspace/logs/processed_filenames.txt')
 #     os.makedirs(processed_log_path.parent, exist_ok=True)
 #     processed_files = set()
 #     if processed_log_path.exists():

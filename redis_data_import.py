@@ -14,7 +14,7 @@ def setup_logger():
     """设置日志记录"""
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
-    log_file_path = f'/data/true_nas/zfs_share1/yy/logs/redis_data_import.log'
+    log_file_path = f'/data/share2/yy/workspace/logs/redis_data_import.log'
     
     # 创建日志目录
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)

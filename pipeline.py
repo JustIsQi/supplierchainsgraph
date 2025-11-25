@@ -23,7 +23,7 @@ def setup_logger():
     """设置日志记录"""
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
-    log_file_path = f'/data/true_nas/zfs_share1/yy/logs/wind_anno_qwen_inference.log'
+    log_file_path = f'/data/share2/yy/workspace/logs/wind_anno_qwen_inference.log'
     
     # 创建日志目录
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
@@ -60,10 +60,27 @@ def qwen_inference_pipeline(md_content):
     for section in sections:
         header = section['title']
         content = section['content']
-        data = {'query': "上市公司年报章节内容匹配"+header, 'texts':  report_labels}
 
-        title_rerank_res = requests.post("http://10.100.0.1:7981/rerank", json=data)
-        title_scores = json.loads(title_rerank_res.text)[0]
+        data = {"model": "Bge-ReRanker",'query': "上市公司年报章节内容匹配"+header, 'documents':report_labels}
+        # print("raw docs:", paras,'\n\n')
+
+        headers = {
+            "accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer sk-1234",
+        }
+        r = requests.post('http://10.100.0.205:4000/rerank',headers=headers, json=data)
+        ranked_results = json.loads(r.text)['results']
+
+        original_order_scores = []
+        for result in ranked_results:
+            original_index,original_score = result["index"],result["relevance_score"]
+            original_order_scores.append({"index":original_index,"score":original_score})
+
+        # data = {'query': "上市公司年报章节内容匹配"+header, 'texts':  report_labels}
+        # title_rerank_res = requests.post("http://10.100.0.1:7981/rerank", json=data)
+        # title_scores = json.loads(title_rerank_res.text)[0]
+        title_scores = original_order_scores[0]
         title_index,title_score = title_scores['index'],title_scores['score']
         
         if title_score > 0.7:
