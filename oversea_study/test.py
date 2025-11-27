@@ -6,6 +6,7 @@ from openai import OpenAI
 import os
 from pathlib import Path
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 add_path = str(Path(__file__).parent.parent)
 sys.path.append(add_path)
@@ -43,6 +44,28 @@ def qwen_chat(message):
     
     return completion.choices[0].message.content
 
+
+def gpt_oss_chat(message):
+    client = OpenAI(
+        api_key="EMPTY",  # vLLM 部署通常不需要真实 API key
+        base_url="http://10.100.0.2:8002/v1",  # vLLM 默认端口，请根据实际部署情况修改
+    )
+    
+    completion = client.chat.completions.create(
+        model="gptoss",
+        messages=[
+            {"role": "user", "content": message}
+        ],
+        temperature=0.6,
+        top_p=0.95,
+        response_format={
+            "type": "json_object"
+        },
+        timeout=3600
+    )
+    
+    return completion.choices[0].message.content
+
 # 设置目录路径
 datasets_dir = Path("/data/share2/yy/workspace/code/supplierchainsgraph/oversea_study/datasets")
 results_dir = Path("/data/share2/yy/workspace/code/supplierchainsgraph/oversea_study/results")
@@ -56,35 +79,67 @@ total_files = len(md_files)
 
 print(f"找到 {total_files} 个文件需要处理")
 
+# 定义模型配置
+models = [
+    {"name": "qwen", "func": qwen_chat, "display_name": "Qwen3-30B"},
+    {"name": "gpt-oss", "func": gpt_oss_chat, "display_name": "GPT-OSS-20B"}
+]
+
 for idx, md_file in enumerate(md_files, 1):
     print(f"\n[{idx}/{total_files}] 正在处理: {md_file.name}")
     
+    # 读取文件内容（所有模型共用）
     try:
-        # 读取文件内容
         md_content = read_single_md_file(str(md_file))
-        
-        # 构建 prompt
         prompt = OVERSEA_STUDY_PROMPT.format(output_schema=output_schema, documents=md_content)
-        
-        # 调用模型推理
-        response = qwen_chat(prompt)
-        
-        # 解析 JSON 响应
-        result_json = json.loads(response)
-        
-        # 生成输出文件名（将 .md 替换为 .json）
-        output_filename = md_file.stem + ".json"
-        output_path = results_dir / output_filename
-        
-        # 保存结果到 JSON 文件
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(result_json, f, ensure_ascii=False, indent=2)
-        
-        print(f"✓ 成功保存到: {output_path}")
-        
     except Exception as e:
-        print(f"✗ 处理失败: {md_file.name}")
+        print(f"✗ 读取文件失败: {md_file.name}")
         print(f"  错误信息: {str(e)}")
         continue
+    
+    # 定义单个模型推理任务
+    def process_with_model(model_config, prompt, md_file, results_dir):
+        model_name = model_config["name"]
+        model_func = model_config["func"]
+        display_name = model_config["display_name"]
+        
+        try:
+            print(f"  → 使用 {display_name} 推理中...")
+            
+            # 调用模型推理
+            response = model_func(prompt)
+            
+            # 解析 JSON 响应
+            result_json = json.loads(response)
+            
+            # 生成输出文件名（包含模型名称）
+            output_filename = f"{md_file.stem}_{model_name}.json"
+            output_path = results_dir / output_filename
+            
+            # 保存结果到 JSON 文件
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(result_json, f, ensure_ascii=False, indent=2)
+            
+            return {"success": True, "display_name": display_name, "output_file": output_path.name}
+            
+        except Exception as e:
+            return {"success": False, "display_name": display_name, "error": str(e)}
+    
+    # 使用多线程同时推理两个模型
+    with ThreadPoolExecutor(max_workers=len(models)) as executor:
+        # 提交所有模型推理任务
+        futures = {
+            executor.submit(process_with_model, model, prompt, md_file, results_dir): model
+            for model in models
+        }
+        
+        # 收集结果
+        for future in as_completed(futures):
+            result = future.result()
+            if result["success"]:
+                print(f"  ✓ {result['display_name']} 成功保存到: {result['output_file']}")
+            else:
+                print(f"  ✗ {result['display_name']} 处理失败")
+                print(f"    错误信息: {result['error']}")
 
-print(f"\n处理完成！共处理 {total_files} 个文件，结果保存在: {results_dir}")
+print(f"\n处理完成！共处理 {total_files} 个文件，使用 {len(models)} 个模型，结果保存在: {results_dir}")
