@@ -67,6 +67,8 @@ print(f"找到 {total_count} 条符合条件的文档")
 # 下载文件
 success_count = 0
 fail_count = 0
+pdf_success_count = 0
+pdf_fail_count = 0
 
 for idx, doc in enumerate(documents_list, 1):
     try:
@@ -102,22 +104,46 @@ for idx, doc in enumerate(documents_list, 1):
         # 如果文件已存在，跳过
         if local_file_path.exists():
             print(f"[{idx}/{total_count}] 跳过（已存在）: {file_name} (Ticker: {ticker}, ISIN: {isin}, FormType: {form_type})")
-            continue
-        
-        print(f"[{idx}/{total_count}] 下载中: {file_name} (Ticker: {ticker}, ISIN: {isin}, FormType: {form_type})")
-        
-        # 下载文件
-        status_code = us3_client.download_file(us3_path, str(local_file_path))
-        
-        if status_code == 200:
-            print(f"[{idx}/{total_count}] ✓ 下载成功: {file_name}")
-            success_count += 1
         else:
-            print(f"[{idx}/{total_count}] ✗ 下载失败: {file_name} (状态码: {status_code})")
-            fail_count += 1
-            # 删除可能创建的不完整文件
-            if local_file_path.exists():
-                local_file_path.unlink()
+            print(f"[{idx}/{total_count}] 下载中: {file_name} (Ticker: {ticker}, ISIN: {isin}, FormType: {form_type})")
+            
+            # 下载MD文件
+            status_code = us3_client.download_file(us3_path, str(local_file_path))
+            
+            if status_code == 200:
+                print(f"[{idx}/{total_count}] ✓ MD下载成功: {file_name}")
+                success_count += 1
+            else:
+                print(f"[{idx}/{total_count}] ✗ MD下载失败: {file_name} (状态码: {status_code})")
+                fail_count += 1
+                # 删除可能创建的不完整文件
+                if local_file_path.exists():
+                    local_file_path.unlink()
+        
+        # 下载对应的PDF文件
+        # 将us3_path和local_file_path的后缀从.md改为.pdf
+        pdf_us3_path = us3_path.replace(".md", ".pdf")
+        pdf_file_name = file_name.replace(".md", ".pdf")
+        pdf_local_file_path = download_dir / pdf_file_name
+        
+        # 如果PDF文件已存在，跳过
+        if pdf_local_file_path.exists():
+            print(f"[{idx}/{total_count}] 跳过（PDF已存在）: {pdf_file_name}")
+        else:
+            print(f"[{idx}/{total_count}] PDF下载中: {pdf_file_name}")
+            
+            # 下载PDF文件
+            pdf_status_code = us3_client.download_file(pdf_us3_path, str(pdf_local_file_path))
+            
+            if pdf_status_code == 200:
+                print(f"[{idx}/{total_count}] ✓ PDF下载成功: {pdf_file_name}")
+                pdf_success_count += 1
+            else:
+                print(f"[{idx}/{total_count}] ✗ PDF下载失败: {pdf_file_name} (状态码: {pdf_status_code})")
+                pdf_fail_count += 1
+                # 删除可能创建的不完整文件
+                if pdf_local_file_path.exists():
+                    pdf_local_file_path.unlink()
                 
     except Exception as e:
         print(f"[{idx}/{total_count}] ✗ 处理出错: {str(e)}")
@@ -125,6 +151,10 @@ for idx, doc in enumerate(documents_list, 1):
 
 print(f"\n下载完成!")
 print(f"总计: {total_count} 条")
-print(f"成功: {success_count} 条")
-print(f"失败: {fail_count} 条")
-print(f"下载目录: {download_dir}")
+print(f"\nMD文件:")
+print(f"  成功: {success_count} 条")
+print(f"  失败: {fail_count} 条")
+print(f"\nPDF文件:")
+print(f"  成功: {pdf_success_count} 条")
+print(f"  失败: {pdf_fail_count} 条")
+print(f"\n下载目录: {download_dir}")

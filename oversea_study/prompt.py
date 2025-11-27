@@ -3,89 +3,92 @@ import json
 
 output_schema = json.dumps({
   "Products": {
-    "description": "公司主要产品线分类",
+    "description": "Company's main product line categories",
     "iPhone": {
-      "description": "基于iOS操作系统的智能手机产品线",
+      "description": "Smartphone product line based on iOS operating system",
       "value": "The Company\\'s line of smartphones based on its iOS operating system..."
     },
     "Mac": {
-      "description": "基于macOS操作系统的个人电脑产品线",
+      "description": "Personal computer product line based on macOS operating system",
       "value": "The Company\\'s line of personal computers based on its macOS® operating system..."
     }
   },
   "Services": {
-    "description": "公司提供的各类服务业务",
+    "description": "Various service businesses provided by the company",
     "Advertising": {
-      "description": "包括第三方许可安排和公司自有广告平台的广告服务",
+      "description": "Advertising services including third-party licensing arrangements and company-owned advertising platforms",
       "value": "5678"
     }
   },
   "Platform": {
-    "description": "按应用平台分类的营业收入数据",
+    "description": "Revenue data classified by application platform",
     "High Performance Computing": {
-      "description": "高性能计算平台相关的营业收入",
+      "description": "Revenue related to high-performance computing platform",
       "value": 1476891,
       "unit": "TWD"
     },
     "Smartphone": {
-      "description": "智能手机平台相关的营业收入",
+      "description": "Revenue related to smartphone platform",
       "value": 1005130,
       "unit": "TWD"
     }
   },
   "Resolution": {
-    "description": "按技术制程节点分类的收入占比",
+    "description": "Revenue proportion classified by technology process node",
     "3-nanometer": {
-      "description": "3纳米制程技术的收入占比",
+      "description": "Revenue proportion of 3-nanometer process technology",
       "ratio": 0.18
     },
     "5-nanometer": {
-      "description": "5纳米制程技术的收入占比",
+      "description": "Revenue proportion of 5-nanometer process technology",
       "ratio": 0.34
     }
   }
 }, indent=2)
 
 OVERSEA_STUDY_PROMPT = """
-你是一个专业金融数据分析师，需要从美股上市公司的财务公告(如10-K、20-F、年度报告)中提取生产经营和营业收入相关数据。请遵循以下要求:
+You are a professional financial data analyst who needs to extract production, operations, and revenue-related data from financial reports of U.S. listed companies (such as 10-K, 20-F, annual reports). Please follow the requirements below:
 
-任务说明:
-仔细阅读公告全文，重点关注"业务描述""收入构成""经营分部""产品与服务"等章节。
+Task Description:
+Carefully read the entire report, focusing on sections such as "Business Description", "Revenue Composition", "Operating Segments", "Products and Services", etc.
 
-分析数据的口径与层级结构:
-不同公司的数据层级可能完全不同，需识别所有层级的分类维度(如:一级分类 → 二级分类 → 三级分类 → 具体业务/产品)。
-示例层级可能包括:
-- 生产经营:产品线(如iPhone、Mac)、服务类型(如广告、云服务)、技术节点(如3纳米、5纳米)、业务部门等。
-- 营业收入:平台类型(如HPC、智能手机)、地理区域、技术制程、客户类型等。
-如果公告中明确列出了多个层级(如一级、二级、三级)，请全部提取。
+Analyze Data Scope and Hierarchical Structure:
+Different companies may have completely different data hierarchies. You need to identify all levels of classification dimensions (e.g., Level 1 → Level 2 → Level 3 → Specific Business/Product).
+Example hierarchies may include:
+- Production and Operations: Product lines (e.g., iPhone, Mac), service types (e.g., advertising, cloud services), technology nodes (e.g., 3-nanometer, 5-nanometer), business divisions, etc.
+- Revenue: Platform types (e.g., HPC, smartphones), geographic regions, technology processes, customer types, etc.
+If the report explicitly lists multiple levels (e.g., Level 1, Level 2, Level 3), extract all of them.
 
-提取内容:
-1. 每一层级的指标名称(如"Products"、"iPhone"、"High Performance Computing")。
-2. 每个指标必须包含一个概括型描述("description"字段)，用于说明该指标的业务含义、分类维度或数据口径。描述应简洁明了，能够帮助理解该指标在业务中的定位和作用。
-3. 对应的数据值，可能是:
-   - 数值(如收入金额、占比)
-   - 单位(如TWD、百万)
-   - 描述性业务内容(如产品功能、服务范围)
-4. 如果存在"比重"(百分比)，请一并提取。
+Extraction Content:
+1. Indicator names at each level (e.g., "Products", "iPhone", "High Performance Computing").
+2. Each indicator must include a summary description ("description" field) to explain the business meaning, classification dimension, or data scope of the indicator. The description should be concise and clear, helping to understand the indicator's position and role in the business.
+3. Corresponding data values, which may be:
+   - Numeric values (e.g., revenue amounts, proportions)
+   - Units (e.g., TWD, millions)
+   - Descriptive business content (e.g., product features, service scope)
+4. If "proportion" (percentage) exists, extract it as well.
 
-忽略以下字段:股票代码、公司名称、财年、ID、数据来源(除非数据本身嵌入在业务描述中)。
+CRITICAL REQUIREMENT - Value Extraction:
+ALL "value" fields MUST be extracted directly from the original text of the report. Do not paraphrase, summarize, or modify the original wording. If the value is a number, use the exact number from the text. If the value is descriptive text, preserve the original wording from the source document. Do not introduce external knowledge or make inferences beyond what is explicitly stated in the document.
 
-输出格式:
-使用JSON格式输出。结构应为多层级嵌套对象，反映实际公告中的层级关系。
-每个节点(包括分类节点和叶子节点)应包含:
-- "description":概括型描述(必需)，说明该指标的业务含义、分类维度或数据口径
-- "value":数据值(数字、字符串或对象)，如果某层级无数据值，仅作为分类节点，可省略此字段
-- 可选:"unit"(单位)、"ratio"(比重)
-注意:即使某层级仅作为分类节点，也必须提供"description"字段来说明其分类意义。
 
-示例参考(基于你提供的文件):
+Output Format:
+Output in JSON format. The structure should be a multi-level nested object that reflects the hierarchical relationships in the actual report.
+Each node (including classification nodes and leaf nodes) should contain:
+- "description": Summary description (required), explaining the business meaning, classification dimension, or data scope of the indicator
+- "value": Data value (number, string, or object). If a level has no data value and is only a classification node, this field may be omitted
+- Optional: "unit" (unit), "ratio" (proportion)
+Note: Even if a level is only a classification node, it must provide a "description" field to explain its classification meaning.
+
+Example Reference (based on the provided file):
 {output_schema}
 
-注意事项:
-1. 如果同一公司在同一公告中有多个分类维度(如"Platform"和"Resolution")，请分别列为并列层级。
-2. 若业务数据为描述性文本，请保留原文关键信息，避免摘要。
-3. 确保所有提取字段均来自公告正文，不引入外部知识。
+Important Notes:
+1. If the same company has multiple classification dimensions in the same report (e.g., "Platform" and "Resolution"), list them as parallel levels.
+2. If business data is descriptive text, preserve the key information from the original text and avoid summarization.
+3. Ensure that all extracted fields come from the report body and do not introduce external knowledge.
+4. ALL "value" fields MUST be verbatim extracts from the original document text. Do not modify, paraphrase, or summarize the original wording.
 
-请根据上述规则，处理输入的公司公告，并输出合规的JSON。
+Please process the input company report according to the above rules and output compliant JSON.
 {documents}
 """
