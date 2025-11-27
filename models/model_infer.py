@@ -274,6 +274,6 @@ def qwen_chat(message):
     
     return completion.choices[0].message.content
 
-print(get_models())
+# print(get_models())
 # print(qwen_chat("讲个笑话"))
 
