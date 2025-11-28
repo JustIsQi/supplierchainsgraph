@@ -58,60 +58,118 @@ output_schema = json.dumps({
 }, indent=2)
 
 OVERSEA_STUDY_PROMPT = """
-You are a professional financial data analyst who needs to extract production, operations, and revenue-related data from financial reports of U.S. listed companies (such as 10-K, 20-F, annual reports). Please follow the requirements below:
+You are a professional financial data analyst specializing in extracting structured production, operations, and revenue-related data from financial reports of U.S. listed companies (such as 10-K, 20-F, annual reports).
 
-Task Description:
-Carefully read the entire report, focusing on sections such as "Business Description", "Revenue Composition", "Operating Segments", "Products and Services", etc.
+TASK OBJECTIVE:
+Extract all production, operations, and revenue data from the provided document and organize them into a clear, unified tree-structured hierarchy that reflects the company's business logic and reporting structure.
 
-Analyze Data Scope and Hierarchical Structure:
-Different companies may have completely different data hierarchies. You need to identify all levels of classification dimensions (e.g., Level 1 → Level 2 → Level 3 → Specific Business/Product).
-Example hierarchies may include:
-- Production and Operations: Product lines (e.g., iPhone, Mac), service types (e.g., advertising, cloud services), technology nodes (e.g., 3-nanometer, 5-nanometer), business divisions, etc.
-- Revenue: Platform types (e.g., HPC, smartphones), geographic regions, technology processes, customer types, etc.
-If the report explicitly lists multiple levels (e.g., Level 1, Level 2, Level 3), extract all of them.
+---
 
-Extraction Content:
-1. Indicator names at each level (e.g., "Products", "iPhone", "High Performance Computing").
-2. Each indicator must include a summary description ("description" field) to explain the business meaning, classification dimension, or data scope of the indicator. The description should be concise and clear, helping to understand the indicator's position and role in the business.
-3. Corresponding data values, which should be extracted as follows:
-   - "value": ONLY the numeric value (e.g., 201183, 1476891). Do not include currency symbols or unit descriptions in this field.
-   - "currency": The currency code mentioned in the original text (e.g., "USD", "EUR", "TWD", "CNY"). Extract exactly as stated in the document.
-   - "unit": The magnitude unit of the numeric value (e.g., "million", "billion", "thousand", "hundred million"). Extract exactly as stated in the document.
-   - "growth_rate": If growth rate or year-over-year change is mentioned, extract it as a decimal number (e.g., 0.05 for 5% growth, -0.27 for -27% decline). This field is optional.
-   - "ratio": For percentage or proportion data that represents composition rather than growth (e.g., market share, revenue mix), extract as a decimal (e.g., 0.18 for 18%).
-4. For descriptive business content (e.g., product features, service scope), if no numeric value exists, you may include the description in the "value" field.
+HIERARCHICAL STRUCTURE RULES:
 
-CRITICAL REQUIREMENT - Data Extraction:
-ALL extracted data fields MUST come directly from the original text of the report:
-- "value": Extract the exact numeric value as it appears in the text. Do not perform calculations or conversions.
-- "currency": Extract the exact currency code or symbol mentioned in the original text (e.g., if the text says "USD millions", extract "USD").
-- "unit": Extract the exact magnitude unit mentioned in the original text (e.g., "million", "billion", "千", "百万"). Preserve the original language if necessary.
-- "growth_rate": Extract the exact growth/change percentage mentioned and convert to decimal format (e.g., "increased 5%" becomes 0.05, "decreased 10%" becomes -0.10).
-- For descriptive content without numeric values, preserve the original wording from the source document in the "value" field.
-Do not introduce external knowledge or make inferences beyond what is explicitly stated in the document.
+1. LEVEL DEFINITION:
+   - Level 1: Top-level business dimensions (e.g., "Business Segments", "Revenue Composition", "Geographic Distribution", "Product Categories")
+   - Level 2: Major categories within each dimension (e.g., "North America", "iPhone", "Services")
+   - Level 3: Sub-categories or detailed metrics (e.g., "Net Sales", "Operating Income", "Advertising Services")
+   - Level 4+: Further breakdowns if present (e.g., "Cost of Sales", "Fulfillment Expenses")
 
+2. STRUCTURE REQUIREMENTS:
+   - Use ONLY nested objects to represent parent-child relationships
+   - Each level must have a clear semantic meaning (what dimension it represents)
+   - Sibling nodes at the same level should represent the same type of classification
+   - NEVER mix different classification dimensions at the same level
+   - Each node must contain either child nodes OR data values, but clearly distinguish between category nodes and data leaf nodes
 
-Output Format:
-Output in JSON format. The structure should be a multi-level nested object that reflects the hierarchical relationships in the actual report.
-Each node (including classification nodes and leaf nodes) should contain:
-- "description": Summary description (required), explaining the business meaning, classification dimension, or data scope of the indicator
-- "value": Numeric data value only (number). If a level has no data value and is only a classification node, this field may be omitted. For descriptive content without numeric values, this field may contain the text description.
-- "currency": Currency code (optional, e.g., "USD", "EUR", "TWD"). Only include when a numeric value is present.
-- "unit": Magnitude unit (optional, e.g., "million", "billion", "thousand"). Only include when a numeric value is present.
-- "growth_rate": Growth rate as decimal (optional, e.g., 0.05 for 5%, -0.10 for -10%). Only include when growth/change data is mentioned.
-- "ratio": Proportion as decimal (optional, e.g., 0.18 for 18%). Use this for composition data like market share or revenue mix.
-Note: Even if a level is only a classification node, it must provide a "description" field to explain its classification meaning.
+3. NODE TYPES:
+   a) Category Node (has children): Contains "description" + child nodes
+   b) Data Leaf Node: Contains "description" + data fields (value, currency, unit, growth_rate, ratio)
 
-Example Reference (based on the provided file):
+---
+
+DATA EXTRACTION RULES:
+
+1. FIELD DEFINITIONS:
+   - "description": (REQUIRED for ALL nodes) Clear explanation of what this node represents
+     * For category nodes: describe the classification dimension or business scope
+     * For data nodes: describe what metric this data represents
+   
+   - "value": (OPTIONAL, numeric only) The exact numeric value from the document
+     * Extract as pure number (e.g., 201183, not "$201,183M")
+     * Do NOT perform any calculations or conversions
+     * Only include if the document explicitly provides this number
+   
+   - "currency": (OPTIONAL) Currency code exactly as stated (e.g., "USD", "EUR", "TWD", "CNY")
+   
+   - "unit": (OPTIONAL) Magnitude unit exactly as stated (e.g., "million", "billion", "thousand")
+   
+   - "growth_rate": (OPTIONAL) Growth/change rate as decimal
+     * Positive for growth (e.g., "increased 5%" → 0.05)
+     * Negative for decline (e.g., "decreased 10%" → -0.10)
+   
+   - "ratio": (OPTIONAL) Composition/proportion as decimal (e.g., "18% of total" → 0.18)
+     * Use for market share, revenue mix, or percentage breakdowns
+     * Do NOT use for growth rates
+
+2. CRITICAL REQUIREMENTS:
+   - Extract ONLY from the provided document text - NO external knowledge
+   - Do NOT calculate, convert, or infer any values
+   - Preserve original currency and units as stated in the document
+   - If data is missing or unclear, OMIT that field rather than guessing
+   - VERIFY each number against the source text before including it
+
+---
+
+OUTPUT FORMAT:
+
+Return a JSON object with the following structure:
+
+{
+  "Level1_Dimension_Name": {
+    "description": "Explanation of this business dimension",
+    "node_type": "category",
+    "Level2_Category_Name": {
+      "description": "Explanation of this category",
+      "node_type": "category",
+      "Level3_Metric_Name": {
+        "description": "Explanation of this specific metric",
+        "node_type": "data",
+        "value": <number>,
+        "currency": "<string>",
+        "unit": "<string>",
+        "growth_rate": <decimal>,
+        "ratio": <decimal>
+      }
+    }
+  }
+}
+
+EXAMPLE STRUCTURE:
 {output_schema}
 
-Important Notes:
-1. If the same company has multiple classification dimensions in the same report (e.g., "Platform" and "Resolution"), list them as parallel levels.
-2. Separate numeric data into distinct fields: "value" (numeric only), "currency" (currency code), "unit" (magnitude unit), and "growth_rate" (if applicable).
-3. For descriptive business content without numeric values, preserve the key information from the original text in the "value" field and avoid summarization.
-4. Ensure that all extracted fields come from the report body and do not introduce external knowledge.
-5. ALL numeric values, currency codes, and units MUST be verbatim extracts from the original document text. Do not perform conversions, calculations, or modify the original data representation.
+---
 
-Please process the input company report according to the above rules and output compliant JSON.
+IMPORTANT NOTES:
+
+1. CONSISTENCY: All nodes at the same depth under the same parent should represent the same type of classification
+
+2. COMPLETENESS: Extract ALL relevant production, operations, and revenue data mentioned in the document
+
+3. ACCURACY: Every data value must be traceable to a specific statement in the source document
+
+4. CLARITY: The hierarchy should be immediately understandable - a reader should be able to navigate from high-level business overview down to specific metrics
+
+5. NO DUPLICATION: Each piece of data should appear only once in the tree at its most appropriate location
+
+6. FOCUS AREAS: Pay special attention to:
+   - Business segment breakdowns
+   - Revenue composition by product/service/geography
+   - Operating metrics and KPIs
+   - Cost structure and expense breakdowns
+   - Year-over-year comparisons
+
+---
+
+Now process the following financial report and extract the structured data:
+
 {documents}
 """
