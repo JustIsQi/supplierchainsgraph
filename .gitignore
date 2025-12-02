@@ -1,3 +1,5 @@
 *.md
 *.json
 *.pdf
+*.csv
+*.xlsx

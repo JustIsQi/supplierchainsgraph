@@ -7,9 +7,7 @@ import os
 from pathlib import Path
 import sys
 import requests
-import re
 import time
-from rank_bm25 import BM25Okapi
 
 add_path = str(Path(__file__).parent.parent)
 sys.path.append(add_path)
@@ -64,85 +62,6 @@ def split_text_into_paragraphs(text):
             })
     
     return paragraphs
-
-
-def batch_rerank_lines(lines, question, max_lines=20, score_threshold=0):
-    """
-    使用批量重排序API对段落内的多行文本进行精排
-    
-    Args:
-        lines: 文本行列表
-        question: 查询问题（通常是段落标题）
-        max_lines: 返回的最大行数
-        score_threshold: 相关性分数阈值
-    
-    Returns:
-        str: 精排后的文本（pruned_context）
-    """
-    if not lines or len(lines) <= 1:
-        return '\n'.join(lines) if lines else ""
-    
-    # 过滤空行
-    non_empty_lines = [line for line in lines if line.strip()]
-    if len(non_empty_lines) <= 1:
-        return '\n'.join(lines)
-    
-    try:
-        # 构建批量重排序请求数据
-        request_data = []
-        for line in non_empty_lines:
-            request_data.append({
-                "question": question,
-                "context": line
-            })
-        
-        # 调用批量重排序API
-        response = requests.post(
-            "http://10.100.0.1:7004/rerank/batch",
-            json=request_data,
-            headers={"Content-Type": "application/json"},
-            timeout=60
-        )
-        
-        if response.status_code != 200:
-            print(f"    ⚠ 批量重排序API请求失败 (状态码: {response.status_code})，返回原文本")
-            return '\n'.join(lines)
-        
-        # 解析响应
-        results = response.json()
-       
-        # 提取 pruned_context 并按分数排序
-        scored_contexts = []
-        for i, result in enumerate(results):
-            if 'pruned_context' in result and 'score' in result:
-                
-                if result['reranking_score'] >= score_threshold:
-                   
-                    scored_contexts.append({
-                        'context': result['pruned_context'],
-                        'score': result['reranking_score'],
-                        'original_index': i
-                    })
-        
-        if not scored_contexts:
-            return ''
-        
-        # 按原始顺序排序（保持文档逻辑顺序）
-        scored_contexts.sort(key=lambda x: x['original_index'])
-        
-        # 取前 max_lines 个
-        selected_contexts = scored_contexts[:max_lines]
-        
-        # 拼接精排后的内容
-        pruned_text = '\n'.join([item['context'] for item in selected_contexts])
-        
-        print(f"    ✓ 行级精排: {len(non_empty_lines)} 行 → {len(selected_contexts)} 行 (阈值: {score_threshold})")
-        
-        return pruned_text
-        
-    except Exception as e:
-        print(f"    ⚠ 批量重排序失败: {str(e)}，返回原文本")
-        return '\n'.join(lines)
 
 
 def rerank_paragraphs(paragraphs, query, top_k=10, score_threshold=0.3):
@@ -237,107 +156,11 @@ def rerank_paragraphs(paragraphs, query, top_k=10, score_threshold=0.3):
         return paragraphs
 
 
-def filter_financial_statements(paragraphs, bm25_threshold=10.0):
-    """
-    使用 BM25 过滤掉财务报表相关段落
-    只使用段落标题（title）进行相似度判断，高于阈值的段落将被过滤掉
-    
-    Args:
-        paragraphs: 段落列表
-        bm25_threshold: BM25 分数阈值，高于此值的段落将被过滤
-    
-    Returns:
-        list: 过滤后的段落列表
-    """
-    if not paragraphs:
-        return []
-    
-    # 标准财务报表查询语句（三大报表）
-    financial_statement_queries = [
-        "Condensed Consolidated Statements of Operations",
-        "Condensed Consolidated Statements of Comprehensive Income", 
-        "Condensed Consolidated Statements of Cash Flows",
-        "Condensed Consolidated Statements of Stockholders' Equity",
-        "Consolidated Balance Sheets",
-        "Consolidated Statements of Income",
-        "Consolidated Statements of Cash Flows"
-    ]
-    
-    try:
-        # 只提取段落标题用于过滤
-        paragraph_titles = []
-        for para in paragraphs:
-            title = para.get('title', '')
-            content = para.get('content', '')       
-            # 如果没有标题，使用内容的前100个字符
-            paragraph_titles.append(title if title else '')
-        
-        # 对标题进行分词（简单的空格分词，转小写）
-        def tokenize(text):
-            # 移除 markdown 标记符号 #，转小写，按空格分词
-            text = text.replace('#', '').lower()
-            # 移除标点符号，保留字母数字和空格
-            text = re.sub(r'[^\w\s]', ' ', text)
-            return text.split()
-        
-        tokenized_titles = [tokenize(title) for title in paragraph_titles]
-        
-        # 过滤掉空的分词结果，记录有效索引
-        valid_indices = []
-        valid_tokenized = []
-        for i, tokens in enumerate(tokenized_titles):
-            if tokens:  # 只保留非空的
-                valid_indices.append(i)
-                valid_tokenized.append(tokens)
-        
-        if not valid_tokenized:
-            return paragraphs
-        
-        # 构建 BM25 索引
-        bm25 = BM25Okapi(valid_tokenized)
-        
-        # 使用集合存储要过滤的段落索引
-        paragraphs_to_filter = set()
-        
-        for query in financial_statement_queries:
-            query_tokens = tokenize(query)
-            if not query_tokens:
-                continue
-                
-            # 计算 BM25 分数
-            scores = bm25.get_scores(query_tokens)
-            
-            # 找出分数高于阈值的段落，这些段落将被过滤掉
-            for idx, score in enumerate(scores):
-                if score >= bm25_threshold:
-                    # 映射回原始索引
-                    original_idx = valid_indices[idx]
-                    paragraphs_to_filter.add(original_idx)
-        
-        # 过滤段落：只保留分数低于阈值的段落
-        filtered = []
-        for i, para in enumerate(paragraphs):
-            if i not in paragraphs_to_filter:
-                filtered.append(para)
-        
-        filtered_count = len(paragraphs) - len(filtered)
-        if filtered_count > 0:
-            print(f"  ✓ 过滤财务报表段落: {filtered_count} 个段落被过滤 (BM25阈值: {bm25_threshold})")
-        
-        return filtered
-        
-    except Exception as e:
-        print(f"  ⚠ 财务报表过滤失败: {str(e)}，返回所有段落")
-        return paragraphs
-
-
 def preprocess_document(md_content, enable_rerank=True):
     """
-    预处理文档：两级精排
+    预处理文档：段落分割和精排
     1. 按 markdown 标题分割段落
-    2. 过滤财务报表段落
-    3. 段落级别：使用rerank筛选相关段落
-    4. 行级别：对每个段落内部的多行文本进行批量重排序精排
+    2. 段落级别：使用rerank筛选相关段落
     
     Args:
         md_content: markdown文档内容
@@ -363,54 +186,25 @@ def preprocess_document(md_content, enable_rerank=True):
         return '\n\n'.join(result_paragraphs)
     
     # 第二步：段落级别的rerank筛选 - 聚焦产品、技术、营收核心业务
-    # 段落级排序：只筛选产品线、技术研发、营收收入相关的核心业务内容
     rank_query = "Core business disclosure: product lines and services, technology and R&D capabilities, revenue and sales by segment. Product portfolio, technology innovation, revenue breakdown by product category or geographic market."
     selected_paragraphs = rerank_paragraphs(
         paragraphs,
         query=rank_query,
-        top_k=80,  # 选择最相关的段落
+        top_k=50,  # 选择最相关的段落
         score_threshold=0.1  # 分数阈值
     )
     
-    # 第三步：过滤财务报表段落（使用更宽松的阈值，避免过度过滤）
-    print(f"  → Rerank后剩余: {len(selected_paragraphs)} 段落")
-    selected_paragraphs = filter_financial_statements(selected_paragraphs, bm25_threshold=15.0)  # 提高阈值，减少过滤
-    print(f"  ✓ 财务报表过滤后剩余: {len(selected_paragraphs)} 段落")
-    
-    # 第四步：对每个段落内部进行行级精排
-    print(f"  → 开始行级精排...")
-    refined_paragraphs = []
-    
+    # 第三步：重新组装段落
+    result_paragraphs = []
     for para in selected_paragraphs:
         title = para.get('title', '')
         content = para.get('content', '')
-        
-        # 按换行符分割内容
-        lines = content.split('\n')
-        
-        # 如果有多行，进行批量重排序精排
-        if len(lines) > 1:
-            # 行级排序：只保留产品、技术、营收相关的量化数据行
-            line_rank_query = "Product revenue, technology development, sales figures by product line or region. Specific product names, technology capabilities, revenue amounts, market share percentages."
-            
-            # 行级精排（降低阈值，保留更多内容）
-            pruned_content = batch_rerank_lines(
-                lines, 
-                question=line_rank_query,
-                max_lines=50,  # 每个段落最多保留50行（增加保留数量）
-                score_threshold=0.2  # 降低阈值，保留更多行
-            )
-        else:
-            pruned_content = content
-        
-        # 重新组装段落
         if title:
-            refined_paragraphs.append(f"{title}\n{pruned_content}")
+            result_paragraphs.append(f"{title}\n{content}")
         else:
-            refined_paragraphs.append(pruned_content)
+            result_paragraphs.append(content)
     
-    # 合并筛选后的段落
-    filtered_content = "\n\n".join(refined_paragraphs)
+    filtered_content = "\n\n".join(result_paragraphs)
     print(f"  ✓ 内容压缩: {len(md_content)} 字符 → {len(filtered_content)} 字符 (压缩率: {(1-len(filtered_content)/len(md_content))*100:.1f}%)")
     
     return filtered_content
@@ -450,7 +244,7 @@ total_files = len(md_files)
 
 print(f"找到 {total_files} 个文件需要处理")
 
-for idx, md_file in enumerate(md_files, 1):
+for idx, md_file in enumerate(md_files[:2], 1):
     print(f"\n[{idx}/{total_files}] 正在处理: {md_file.name}")
     
     # 读取文件内容（所有模型共用）
